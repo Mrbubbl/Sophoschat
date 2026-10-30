@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+data/
+data-demo/
+*.tar.gz
+AGENT_GUIDE.md.local
