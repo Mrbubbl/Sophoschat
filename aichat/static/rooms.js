@@ -271,8 +271,8 @@ async function runSearch() {
 export function openNewChat() {
   let mode = 'dm';
   const body = h('div', { class: 'newchat' });
-  const withAgent = h('input', { type: 'checkbox', checked: true });
-  withAgent.checked = !!S.agent;
+  // Agent 默认加入新聊天（只在被 @ 时回复）；开关只放在会话设置里
+  const withAgent = { checked: !!S.agent };
   const title = h('input', { type: 'text', placeholder: '群名称', maxlength: '60', 'aria-label': '群名称' });
   const picks = new Set();
   const render = () => {
@@ -286,7 +286,6 @@ export function openNewChat() {
       ),
       mode === 'group' ? title : null,
       h('div', { class: 'pick-list' }, S.users.length ? S.users.map((u) => userRow(u)) : h('div', { class: 'empty' }, '还没有其他用户。请 Owner 在 设置 → 成员 里添加。')),
-      h('label', { class: 'check' }, withAgent, h('span', null, '让 Agent 加入这个聊天', h('small', null, 'Agent 默认不打扰，只在被 @ 时回复；并会在后台静默整理主题记忆。可随时在会话设置里关闭。')))
       ].filter(Boolean)
     );
   };
