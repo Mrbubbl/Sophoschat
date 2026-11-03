@@ -72,6 +72,8 @@ const ICONS = {
   share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
   type: '<path d="M4 7V4h16v3M9 20h6M12 4v16"/>',
+  expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  shield: '<path d="M12 3l8 3v6c0 4.5-3.2 8.2-8 9-4.8-.8-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
   history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
 };
 export function icon(name, size = 18) {
@@ -154,9 +156,10 @@ export function avatar(user, size = 36) {
     return el;
   }
   if (isAgent) {
-    el.append(icon('bot', Math.round(size * 0.55)));
+    el.classList.add('has-img', 'logo');
+    el.append(h('img', { src: '/static/icon.svg', alt: '', draggable: 'false' }));
   } else {
-    el.style.background = COLORS[(user ? user.id : 0) % COLORS.length];
+    el.style.setProperty('--av', COLORS[(user ? user.id : 0) % COLORS.length]);
     el.textContent = [...name][0].toUpperCase();
   }
   return el;
@@ -388,7 +391,7 @@ export function toast(msg, kind = '') {
   setTimeout(() => t.remove(), 3600);
 }
 
-export function modal({ title, body, actions = [], wide = false, onClose }) {
+export function modal({ title, body, actions = [], wide = false, sheet = false, onClose }) {
   let closed = false;
   const close = () => {
     if (closed) return;
@@ -401,15 +404,16 @@ export function modal({ title, body, actions = [], wide = false, onClose }) {
   const leave = openLayer(close);
   const onKey = (e) => {
     if (e.key === 'Escape') {
+      if (_pop) return; // 先关闭弹出菜单，再关弹窗
       e.stopPropagation();
       close();
     }
   };
   const card = h(
     'div',
-    { class: 'modal' + (wide ? ' wide' : ''), role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
-    h('div', { class: 'modal-head' }, h('h2', null, title), iconBtn('close', '关闭', close)),
-    h('div', { class: 'modal-body' }, body),
+    { class: 'modal' + (wide ? ' wide' : '') + (sheet ? ' sheet' : ''), role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
+    sheet ? null : h('div', { class: 'modal-head' }, h('h2', null, title), iconBtn('close', '关闭', close)),
+    h('div', { class: 'modal-body' + (sheet ? ' flush' : '') }, body),
     actions.length ? h('div', { class: 'modal-actions' }, actions) : null
   );
   const overlay = h('div', { class: 'overlay', onmousedown: (e) => e.target === overlay && close() }, card);
@@ -491,4 +495,41 @@ export function setShowTimes(on) {
     localStorage.setItem('sc.hideTimes', on ? '0' : '1');
   } catch {}
   document.body.classList.toggle('hide-times', !on);
+}
+
+
+// 轻量弹出菜单：贴着触发按钮显示（右对齐、在下方），点外面或按 Esc 关闭
+let _pop = null;
+export function closePopMenu() {
+  _pop && _pop.remove();
+  _pop = null;
+}
+export function popMenu(anchor, items) {
+  closePopMenu();
+  const el = h(
+    'div',
+    { class: 'ctxmenu', role: 'menu' },
+    items.map((it) =>
+      h('button', { type: 'button', role: 'menuitem', class: it.on ? 'on' : '', onclick: () => (closePopMenu(), it.fn()) }, it.icon ? icon(it.icon, 16) : null, h('span', { class: 'pm-label' }, it.label), it.on ? icon('check', 15) : null)
+    )
+  );
+  document.body.append(el);
+  _pop = el;
+  const b = anchor.getBoundingClientRect();
+  const w = el.offsetWidth;
+  const hh = el.offsetHeight;
+  el.style.left = Math.max(8, Math.min(b.right - w, window.innerWidth - w - 8)) + 'px';
+  el.style.top = Math.max(8, Math.min(b.bottom + 6, window.innerHeight - hh - 8)) + 'px';
+  setTimeout(() => {
+    const off = (e) => {
+      if (_pop && !_pop.contains(e.target)) {
+        closePopMenu();
+        document.removeEventListener('pointerdown', off, true);
+        document.removeEventListener('keydown', esc, true);
+      }
+    };
+    const esc = (e) => e.key === 'Escape' && (closePopMenu(), document.removeEventListener('pointerdown', off, true), document.removeEventListener('keydown', esc, true));
+    document.addEventListener('pointerdown', off, true);
+    document.addEventListener('keydown', esc, true);
+  }, 0);
 }

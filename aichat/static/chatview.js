@@ -25,7 +25,7 @@ const coarse = matchMedia('(pointer: coarse)').matches;
 
 // ------------------------------------------------------------------ 初始化
 export function initChat(container) {
-  els.empty = h('div', { class: 'empty-center' }, h('div', { class: 'empty-art' }, icon('bot', 40)), h('h2', null, 'SophosChat'), h('p', null, '选择一个聊天，或点左上角 ＋ 新建'));
+  els.empty = h('div', { class: 'empty-center' }, h('img', { class: 'empty-logo', src: '/static/icon.svg', alt: '', width: 72, height: 72 }), h('h2', null, 'SophosChat'), h('p', null, '选一个聊天开始'));
   els.head = h('header', { class: 'chat-head' });
   els.msgs = h('div', { class: 'msgs', id: 'msgs', tabindex: '0', role: 'log', 'aria-live': 'polite', 'aria-label': '消息列表' });
   els.toBottom = h('button', { class: 'to-bottom', type: 'button', hidden: true, onclick: () => (S.msgs.get(S.cur)?.hasAfter ? goLatest() : scrollToBottom(true)) });
@@ -322,11 +322,12 @@ function refreshAgentUi() {
   if (!r) return;
   const st = S.agent;
   if (r.agent_in_room && st && st.state !== 'online') {
+    const owner = S.me.role === 'owner';
     els.agentbar.hidden = false;
     els.agentbar.replaceChildren(
       h('span', { class: 'dot ' + st.state }),
-      h('span', { class: 'abtext' }, (st.state === 'unconfigured' ? 'Agent 还没有接入：' : 'Agent 当前离线：') + '消息会照常保存，Agent 上线后才会处理。'),
-      h('button', { class: 'link', type: 'button', onclick: () => emit('open-settings', 'agent') }, st.state === 'unconfigured' ? '去接入' : '查看状态')
+      h('span', { class: 'abtext' }, st.state === 'unconfigured' ? 'AI 还没连上' : 'AI 暂时离线'),
+      owner ? h('button', { class: 'link', type: 'button', onclick: () => emit('open-settings', 'agent') }, st.state === 'unconfigured' ? '去设置' : '查看') : null
     );
   } else els.agentbar.hidden = true;
 }
@@ -418,7 +419,7 @@ function messageRow(m, prev) {
   };
   // 时间显示在文字最后一行的右侧，不再单独占一行；代码块结尾、发送中/失败等情况仍放在下面
   const bodyEl = !m.deleted && !m.local && m.body ? bubble.querySelector(':scope > .body:not(.clamped)') : null;
-  const slot = bodyEl && !bubble.querySelector(':scope > .lcards') ? tailBlock(bodyEl) : null;
+  const slot = bodyEl && !bubble.querySelector(':scope > .lcards, :scope > .artifact-card') ? tailBlock(bodyEl) : null;
   if (slot) {
     slot.append(h('span', { class: 'tpad' + (m.edited_at || m.starred ? ' wide' : '') }));
     bubble.classList.add('tinline');

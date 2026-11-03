@@ -176,7 +176,7 @@ function showLogin(msg) {
     },
     h('div', { class: 'login-logo' }, h('img', { class: 'logo-img', src: '/static/icon.svg', alt: 'SophosChat' })),
     h('h1', null, 'SophosChat'),
-    h('p', { class: 'muted' }, '自部署的私人聊天，Agent 默认不打扰，只在需要时出现。'),
+    h('p', { class: 'muted' }, '私人聊天，AI 在需要时才出现。'),
     inviteNote,
     user,
     display,

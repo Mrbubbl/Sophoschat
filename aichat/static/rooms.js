@@ -100,6 +100,7 @@ export function renderMe() {
 
 export function renderPill() {
   const st = S.agent;
+  els.pill.hidden = true; // Agent 状态不再占用顶部：出问题时只在聊天里用一行小字提示，详情在设置里
   if (!st) return;
   const text = { unconfigured: 'Agent 未配置', offline: 'Agent 离线', online: 'Agent 在线', paused: 'Agent 已暂停', degraded: 'Agent 调用异常' }[st.state];
   els.pill.replaceChildren(h('span', { class: 'dot ' + st.state }), text);
@@ -124,7 +125,7 @@ export function renderRooms() {
 
 function roomItem(r) {
   const lm = r.last_message;
-  let text = '暂无消息';
+  let text = '';
   if (lm) {
     const body = lm.deleted ? '消息已删除' : lm.body || (lm.has_attachment ? '[附件]' : '');
     const who = lm.sender_id === S.me.id ? '我：' : r.type === 'group' || lm.kind === 'agent' ? userById(lm.sender_id).display_name + '：' : '';
