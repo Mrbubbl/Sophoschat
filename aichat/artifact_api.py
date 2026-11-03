@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from . import artifacts, chat, db, runtime
@@ -87,9 +87,33 @@ async def download(version_id: int, u=Depends(current_user)):
 PREVIEW_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-scripts"
 
 
+# 预览运行在没有 allow-same-origin 的沙箱里，浏览器会禁止访问 localStorage / sessionStorage（一访问就抛 SecurityError），
+# 很多小游戏、工具页用它存最高分或设置，脚本在这里就中断，页面"跑不起来"。
+# 预览时在页面最前面注入一小段垫片：访问被禁时换成内存版存储，页面能正常运行（刷新后不保留，下载后用浏览器打开则是真正的存储）。
+STORAGE_SHIM = (
+    "<script>(function(){function mk(){var d={};return{getItem:function(k){return Object.prototype.hasOwnProperty.call(d,k)?d[k]:null},"
+    "setItem:function(k,v){d[k]=String(v)},removeItem:function(k){delete d[k]},clear:function(){d={}},"
+    "key:function(i){return Object.keys(d)[i]||null},get length(){return Object.keys(d).length}}}"
+    "['localStorage','sessionStorage'].forEach(function(n){try{void window[n].length}catch(e){try{Object.defineProperty(window,n,{value:mk(),configurable:true})}catch(_){}}})})();</script>"
+)
+
+
+def with_shim(html: str) -> str:
+    import re
+
+    m = re.search(r"<head[^>]*>", html, re.I)
+    if m:
+        return html[: m.end()] + STORAGE_SHIM + html[m.end():]
+    m = re.search(r"<html[^>]*>", html, re.I)
+    if m:
+        return html[: m.end()] + STORAGE_SHIM + html[m.end():]
+    return STORAGE_SHIM + html
+
+
 @router.get("/api/artifact-versions/{version_id}/preview")
 async def preview(version_id: int, u=Depends(current_user)):
     v = artifacts.authorized(version_id, uid(u))
     if v["kind"] != "html":
         raise ApiError(415, "not_html")
-    return FileResponse(artifacts.file_path(v), media_type="text/html; charset=utf-8", headers={"Cache-Control": "no-store", "Content-Security-Policy": PREVIEW_CSP, "X-Frame-Options": "SAMEORIGIN", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff"})
+    text = artifacts.file_path(v).read_text(encoding="utf-8", errors="replace")
+    return HTMLResponse(with_shim(text), headers={"Cache-Control": "no-store", "Content-Security-Policy": PREVIEW_CSP, "X-Frame-Options": "SAMEORIGIN", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff"})

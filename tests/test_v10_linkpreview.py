@@ -163,3 +163,13 @@ def test_pref_toggle_and_cleanup(env):
     assert env.a.put("/api/me/prefs", json={"link_preview": "yes"}).status_code == 400
     assert env.a.get("/api/link-preview/image/../../etc/passwd").status_code in (404, 422)
     assert env.a.get("/api/link-preview/image/" + "0" * 24).status_code == 404
+
+
+def test_preview_storage_shim_is_injected_once_at_the_top():
+    from aichat.artifact_api import STORAGE_SHIM, with_shim
+
+    a = with_shim("<!doctype html><html><head><title>t</title></head><body><script>localStorage.getItem('x')</script></body></html>")
+    assert a.index(STORAGE_SHIM) < a.index("<title>") and a.count(STORAGE_SHIM) == 1
+    assert with_shim("<html><body>x</body></html>").index(STORAGE_SHIM) < with_shim("<html><body>x</body></html>").index("<body>")
+    assert with_shim("<p>fragment</p>").startswith(STORAGE_SHIM)
+    assert "localStorage" in STORAGE_SHIM and "fetch" not in STORAGE_SHIM  # 只补存储，不放开网络
