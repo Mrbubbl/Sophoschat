@@ -765,3 +765,5 @@ html[data-font='xl'] .cbox textarea { font-size: 18px; }
 .lc-x { position: absolute; top: 5px; right: 5px; width: 22px; height: 22px; border-radius: 50%; border: 0; background: rgba(0, 0, 0, 0.5); color: #fff; display: inline-flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.12s; padding: 0; }
 .lc-wrap:hover .lc-x, .lc-x:focus-visible { opacity: 1; }
 @media (hover: none) { .lc-x { opacity: 0.75; } }
+
+.r-body mark, .result mark { background: color-mix(in srgb, var(--accent) 28%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; font-weight: 600; }

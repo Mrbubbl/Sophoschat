@@ -346,6 +346,17 @@ export function renderMarkdown(text, ctx = {}, depth = 0) {
   return root;
 }
 
+// 搜索结果摘要：去掉 Markdown 记号，截取关键词前后的文字，并高亮关键词
+export function snippet(body, q, before = 28, after = 70) {
+  const text = plainText(body).replace(/\s+/g, ' ');
+  const needle = String(q || '').trim().toLowerCase();
+  const i = needle ? text.toLowerCase().indexOf(needle) : -1;
+  if (i < 0) return [text.length > before + after ? text.slice(0, before + after) + '…' : text];
+  const a = Math.max(0, i - before);
+  const b = Math.min(text.length, i + needle.length + after);
+  return [a > 0 ? '…' : '', text.slice(a, i), h('mark', null, text.slice(i, i + needle.length)), text.slice(i + needle.length, b), b < text.length ? '…' : ''];
+}
+
 // 纯文本（朗读、预览用）：去掉常见 Markdown 记号
 export function plainText(md) {
   return String(md || '')
@@ -357,7 +368,8 @@ export function plainText(md) {
     .replace(/^\s*#{1,6}\s+/gm, '')
     .replace(/^\s*>\s?/gm, '')
     .replace(/^\s*[-*+•]\s+(\[[ xX]\]\s+)?/gm, '')
-    .replace(/\*\*|__|~~|\*|\|/g, ' ')
+    .replace(/\*\*|__|~~|\*/g, '')
+    .replace(/\|/g, ' ')
     .replace(/^\s*:?-{3,}:?.*$/gm, '')
     .replace(/[ \t]+/g, ' ')
     .trim();

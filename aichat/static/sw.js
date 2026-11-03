@@ -1,5 +1,5 @@
 // 最小 Service Worker：缓存静态外壳，使“添加到主屏幕”后可离线打开界面；接口与消息永远走网络。
-const CACHE = 'aichat-shell-v12';
+const CACHE = 'aichat-shell-v13';
 const SHELL = ['/', '/static/style.css', '/static/main.js', '/static/util.js', '/static/store.js', '/static/api.js', '/static/ws.js', '/static/rooms.js', '/static/chatview.js', '/static/panel.js', '/static/settings.js', '/static/artifacts.js', '/static/voice.js', '/static/call.js', '/static/appearance.js', '/static/invite.js', '/static/linkcard.js', '/static/nav.js', '/static/qrcode.js', '/static/icon.svg'];
 
 self.addEventListener('install', (e) => {

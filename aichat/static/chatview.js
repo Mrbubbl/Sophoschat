@@ -9,7 +9,7 @@ import { openLayer } from './nav.js';
 import { wsSend } from './ws.js';
 import { canCall, startCall } from './call.js';
 import { artifactCard } from './artifacts.js';
-import { showTimes, $, h, icon, iconBtn, avatar, renderMarkdown, plainText, fmtTime, fmtFull, fmtDay, dayKey, fmtSize, toast, ask, copyText, debounce } from './util.js';
+import { showTimes, $, h, icon, iconBtn, avatar, renderMarkdown, plainText, snippet, fmtTime, fmtFull, fmtDay, dayKey, fmtSize, toast, ask, copyText, debounce } from './util.js';
 
 const els = {};
 const drafts = new Map(); // room -> { text, reply }
@@ -747,32 +747,40 @@ function toggleSearch() {
     els.searchPane.hidden = true;
     return;
   }
-  const input = h('input', { type: 'search', placeholder: '搜索本会话的消息…', 'aria-label': '搜索本会话', class: 'inroom-q' });
-  const results = h('div', { class: 'results' }, h('div', { class: 'empty' }, '输入关键词后回车'));
+  const input = h('input', { type: 'search', enterkeyhint: 'search', autocomplete: 'off', placeholder: '搜索本会话的消息…', 'aria-label': '搜索本会话', class: 'inroom-q' });
+  const results = h('div', { class: 'results' }, h('div', { class: 'empty' }, '输入关键词，自动搜索'));
+  let seq = 0;
   const run = async () => {
     const q = input.value.trim();
-    if (!q) return;
+    if (!q) return void results.replaceChildren(h('div', { class: 'empty' }, '输入关键词，自动搜索'));
+    const my = ++seq;
     results.replaceChildren(h('div', { class: 'empty' }, '搜索中…'));
     try {
       const d = await get(`/api/rooms/${S.cur}/messages${qs({ q, limit: 50 })}`);
-      results.replaceChildren(...(d.messages.length ? d.messages.map(resultItem) : [h('div', { class: 'empty' }, '没有找到相关消息')]));
+      if (my !== seq) return; // 已有更新的搜索
+      results.replaceChildren(...(d.messages.length ? d.messages.map((m) => resultItem(m, q)) : [h('div', { class: 'empty' }, `没有找到包含「${q}」的消息`)]));
     } catch (e) {
-      results.replaceChildren(h('div', { class: 'empty' }, e.message));
+      if (my === seq) results.replaceChildren(h('div', { class: 'empty' }, e.message));
     }
   };
+  let composing = false;
+  const live = debounce(() => !composing && run(), 350);
+  input.addEventListener('compositionstart', () => (composing = true));
+  input.addEventListener('compositionend', () => ((composing = false), live()));
+  input.addEventListener('input', () => !composing && live());
   input.addEventListener('keydown', (e) => e.key === 'Enter' && !e.isComposing && run());
   els.searchPane.replaceChildren(h('div', { class: 'sp-head' }, input, iconBtn('close', '关闭搜索', () => (els.searchPane.hidden = true))), results);
   els.searchPane.hidden = false;
   input.focus();
 }
 
-export function resultItem(m) {
+export function resultItem(m, q = '') {
   const who = userById(m.sender_id);
   return h(
     'button',
     { class: 'result', type: 'button', onclick: () => emit('jump', { room_id: m.room_id, seq: m.seq, id: m.id }) },
     h('div', { class: 'r-top' }, h('b', null, who.display_name), h('time', null, `${fmtDay(m.created_at)} ${fmtTime(m.created_at)}`)),
-    h('div', { class: 'r-body' }, m.body || '[附件]')
+    h('div', { class: 'r-body' }, m.body ? snippet(m.body, q) : '[附件]')
   );
 }
 

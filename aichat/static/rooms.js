@@ -1,7 +1,7 @@
 // 左侧：会话列表、全局搜索、新建聊天
 import { get, post, qs } from './api.js';
 import { S, emit, on, room, roomTitle, otherHuman, agentUser, userById } from './store.js';
-import { $, h, icon, iconBtn, avatar, fmtRel, debounce, modal, toast, fmtDay, fmtTime } from './util.js';
+import { $, h, icon, iconBtn, avatar, fmtRel, debounce, modal, toast, fmtDay, fmtTime, snippet } from './util.js';
 
 const els = {};
 
@@ -253,7 +253,7 @@ async function runSearch() {
               'button',
               { class: 'result', type: 'button', onclick: () => emit('jump', { room_id: m.room_id, seq: m.seq, id: m.id }) },
               h('div', { class: 'r-top' }, h('b', null, r ? roomTitle(r) : '会话'), h('time', null, `${fmtDay(m.created_at)} ${fmtTime(m.created_at)}`)),
-              h('div', { class: 'r-body' }, userById(m.sender_id).display_name + '：' + (m.body || '[附件]'))
+              h('div', { class: 'r-body' }, userById(m.sender_id).display_name + '：', m.body ? snippet(m.body, q) : '[附件]')
             );
           })
         : [h('div', { class: 'empty' }, '没有找到相关消息')])
