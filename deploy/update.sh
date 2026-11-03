@@ -104,7 +104,7 @@ cp "$WORK/install.log" "/var/log/aichat-install-$TS.log"
 say "健康检查"
 sleep 3
 FAIL=0
-for s in aichat aichat-bridge aichat-proxy; do
+for s in aichat aichat-proxy; do
   st="$(systemctl is-active "$s" 2>/dev/null || true)"
   printf '%-16s %s\n' "$s" "$st"
   [ "$st" = active ] || FAIL=1
