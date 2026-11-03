@@ -104,6 +104,8 @@ def test_room_background_and_prefs(env):
     p = env.a.put("/api/me/prefs", json={"accent": "violet", "font": "l", "bg": "dots", "voice_rate": 1.5, "autoplay": False}).json()["prefs"]
     assert p["accent"] == "violet" and p["font"] == "l" and p["bg"] == "dots" and p["voice_rate"] == 1.5 and p["autoplay"] is False
     assert env.a.put("/api/me/prefs", json={"accent": "red; x"}).status_code == 400
+    assert env.a.put("/api/me/prefs", json={"motion": False}).json()["prefs"]["motion"] is False
+    assert env.a.put("/api/me/prefs", json={"motion": 1}).status_code == 400
     assert env.a.put("/api/me/prefs", json={"evil": 1}).status_code == 400
     assert env.a.put("/api/me/prefs", json={"voice_rate": 3}).status_code == 400
     # bob 的不受影响

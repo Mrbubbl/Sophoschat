@@ -6,6 +6,7 @@ import { voiceSupported, startRecording, voicePlayer, recordingBar, MAX_MS, stop
 import { paintBg, effectiveBg, openRoomBg } from './appearance.js';
 import { linkCards } from './linkcard.js';
 import { openLayer } from './nav.js';
+import { enter } from './motion.js';
 import { wsSend } from './ws.js';
 import { canCall, startCall } from './call.js';
 import { artifactCard } from './artifacts.js';
@@ -557,6 +558,7 @@ function onNewMessage(m) {
   const rows = rowEls(m, prev);
   const firstPending = els.msgs.querySelector('.row.pending');
   rows.forEach((el) => (firstPending ? firstPending.before(el) : els.msgs.append(el)));
+  rows.forEach((el) => enter(el, 'rise'));
   if (stick) scrollToBottom(true);
   else {
     newCount += 1;
@@ -1226,8 +1228,13 @@ function applyReactions(roomId, mid, reactions) {
   const st = S.msgs.get(roomId);
   const m = st?.list.find((x) => x.id === mid);
   if (!m) return;
+  const had = new Set((m.reactions || []).map((r) => r.emoji));
   m.reactions = reactions;
-  if (roomId === S.cur) replaceRow(m.id, m);
+  if (roomId === S.cur) {
+    replaceRow(m.id, m);
+    const row = els.msgs.querySelector(`[data-mid="${m.id}"]`);
+    for (const r of reactions) if (!had.has(r.emoji)) enter([...(row?.querySelectorAll('.react') || [])].find((b) => b.dataset.emoji === r.emoji), 'bounce');
+  }
 }
 
 function onReaction(d) {
@@ -1241,7 +1248,7 @@ function reactionsEl(m) {
     { class: 'reacts' },
     m.reactions.map((r) => {
       const mine = r.user_ids.includes(S.me.id);
-      return h('button', { type: 'button', class: 'react' + (mine ? ' mine' : ''), title: r.user_ids.map((i) => userById(i).display_name).join('、'), onclick: () => react(m, r.emoji) }, r.emoji, r.user_ids.length > 1 ? h('small', null, String(r.user_ids.length)) : null);
+      return h('button', { type: 'button', class: 'react' + (mine ? ' mine' : ''), dataset: { emoji: r.emoji }, title: r.user_ids.map((i) => userById(i).display_name).join('、'), onclick: () => react(m, r.emoji) }, r.emoji, r.user_ids.length > 1 ? h('small', null, String(r.user_ids.length)) : null);
     })
   );
 }
@@ -1256,6 +1263,7 @@ function updateSendState() {
   if (mode !== sendMode) {
     sendMode = mode;
     els.send.replaceChildren(icon(mode === 'mic' ? 'mic' : 'send', 20));
+    enter(els.send.firstChild, 'bounce');
     els.send.classList.toggle('mic', mode === 'mic');
     const label = mode === 'mic' ? '录制语音' : '发送';
     els.send.title = label;
@@ -1478,7 +1486,9 @@ async function send() {
   };
   st.list.push(m);
   const prev = st.list[st.list.length - 2] || null;
-  els.msgs.append(...rowEls(m, prev));
+  const sentRows = rowEls(m, prev);
+  els.msgs.append(...sentRows);
+  sentRows.forEach((el) => enter(el, 'rise'));
   els.input.value = '';
   replyTo = null;
   pendingAtt = null;

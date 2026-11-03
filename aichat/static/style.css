@@ -840,3 +840,27 @@ html[data-font='xl'] .cbox textarea { font-size: 18px; }
 .ac-actions { display: flex; align-items: center; gap: 14px; }
 .ac-link { border: 0; background: none; padding: 0; font-size: 13.5px; color: var(--accent); text-decoration: none; font-weight: 500; }
 .ac-link:hover { text-decoration: underline; }
+
+/* =================================================================== v17：动效（Material 3 的缓动与时长） */
+:root { --ease-standard: cubic-bezier(0.2, 0, 0, 1); --ease-decel: cubic-bezier(0.05, 0.7, 0.1, 1); --ease-accel: cubic-bezier(0.3, 0, 0.8, 0.15); --d-fast: 120ms; --d-short: 180ms; --d-medium: 280ms; }
+/* 菜单：从触发位置的右上角展开 */
+@keyframes pop { from { transform: scale(0.92); opacity: 0; } to { transform: none; opacity: 1; } }
+.ctxmenu { transform-origin: top right; animation: pop var(--d-short) var(--ease-decel); }
+.popbar { animation: pop var(--d-short) var(--ease-decel); transform-origin: bottom center; }
+/* 提示条：从下方升起，淡出时下沉 */
+@keyframes toast-in { from { transform: translateY(14px) scale(0.96); opacity: 0; } to { transform: none; opacity: 1; } }
+.toast { animation: toast-in var(--d-medium) var(--ease-decel); transition: opacity var(--d-short) var(--ease-accel), transform var(--d-short) var(--ease-accel); }
+.toast.out { opacity: 0; transform: translateY(8px); }
+/* 回到底部、输入提示等小控件出现时的过渡 */
+.to-bottom:not([hidden]) { animation: pop var(--d-short) var(--ease-decel); }
+.typingbar:not([hidden]) { animation: toast-in var(--d-short) var(--ease-decel); }
+.recbar { animation: toast-in var(--d-medium) var(--ease-decel); }
+/* 按下反馈：轻微缩小，松手回弹 */
+.btn, .icon-btn, .send, .av-primary, .av-ghost, .ac-link, .room-item, .qe { transition: transform var(--d-fast) var(--ease-standard), background-color var(--d-fast) var(--ease-standard), filter var(--d-fast); }
+.btn:active:not(:disabled), .icon-btn:active, .send:active, .av-primary:active, .av-ghost:active, .qe:active { transform: scale(0.95); }
+.room-item:active { transform: scale(0.99); }
+/* 面板内容切换 */
+.av-stage > * { animation: fade-in var(--d-short) var(--ease-standard); }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+/* 关掉动效：设置里关闭，或系统开启了"减少动态效果" */
+html[data-motion='off'] *, html[data-motion='off'] *::before, html[data-motion='off'] *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }

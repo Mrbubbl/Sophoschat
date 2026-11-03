@@ -39,6 +39,7 @@ export function applyPrefs(p) {
   root.dataset.accent = ACCENTS.some((a) => a.id === p.accent) ? p.accent : 'teal';
   root.dataset.font = p.font || 'm';
   root.dataset.dim = p.dim ? '1' : '0';
+  root.dataset.motion = p.motion === false ? 'off' : 'on';
   emit('prefs', p);
 }
 

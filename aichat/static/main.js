@@ -9,6 +9,7 @@ import { openSettings } from './settings.js';
 import { initCalls } from './call.js';
 import { applyPrefs, savePrefs } from './appearance.js';
 import { initNav, syncView } from './nav.js';
+import { enter } from './motion.js';
 import { setVoiceRate, setAutoNext } from './voice.js';
 
 const root = $('#root');
@@ -25,11 +26,18 @@ initNav({
 });
 const VIEW_DEPTH = { list: 0, chat: 1, panel: 2 };
 
+let prevView = 'list';
 function applyLayout() {
   if (!app) return;
+  const narrow = window.innerWidth < 900;
+  const changed = narrow && S.view !== prevView;
+  const dir = (VIEW_DEPTH[S.view] || 0) >= (VIEW_DEPTH[prevView] || 0) ? 'forward' : 'back';
   app.dataset.view = S.view;
   app.dataset.panel = S.panelOpen ? 'open' : 'closed';
-  syncView(window.innerWidth < 900 ? VIEW_DEPTH[S.view] || 0 : 0);
+  syncView(narrow ? VIEW_DEPTH[S.view] || 0 : 0);
+  // 手机上切换页面：新页面从侧边轻轻滑入并渐显（Material 的"共享轴"，位移很小，不遮挡内容）
+  if (changed) enter(app.querySelector(S.view === 'list' ? '.left' : S.view === 'panel' ? '.panel' : '.center'), dir);
+  prevView = S.view;
 }
 
 function buildShell() {

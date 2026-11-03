@@ -1,5 +1,6 @@
 // 通用小工具：DOM 构建、安全的 Markdown 渲染（不使用 innerHTML）、时间格式、图标、提示与对话框
 import { openLayer } from './nav.js';
+import { enter, exit } from './motion.js';
 
 export const $ = (sel, el = document) => el.querySelector(sel);
 export const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -397,7 +398,9 @@ export function modal({ title, body, actions = [], wide = false, sheet = false, 
     if (closed) return;
     closed = true;
     document.removeEventListener('keydown', onKey, true);
-    overlay.remove();
+    overlay.style.pointerEvents = 'none';
+    exit(card, sheet && window.innerWidth <= 700 ? 'sheet' : 'pop');
+    exit(overlay, 'fade').then(() => overlay.remove());
     leave(); // 同步浏览器历史（返回键）
     onClose && onClose();
   };
@@ -418,6 +421,8 @@ export function modal({ title, body, actions = [], wide = false, sheet = false, 
   );
   const overlay = h('div', { class: 'overlay', onmousedown: (e) => e.target === overlay && close() }, card);
   document.body.append(overlay);
+  enter(overlay, 'fade');
+  enter(card, sheet && window.innerWidth <= 700 ? 'sheet' : 'pop');
   document.addEventListener('keydown', onKey, true);
   const first = card.querySelector('input,textarea,select,button.primary');
   first && first.focus();

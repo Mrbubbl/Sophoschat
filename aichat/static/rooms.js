@@ -1,6 +1,7 @@
 // 左侧：会话列表、全局搜索、新建聊天
 import { get, post, qs } from './api.js';
 import { S, emit, on, room, roomTitle, otherHuman, agentUser, userById } from './store.js';
+import { flipBefore, flipAfter } from './motion.js';
 import { $, h, icon, iconBtn, avatar, fmtRel, debounce, modal, toast, fmtDay, fmtTime, snippet } from './util.js';
 
 const els = {};
@@ -118,7 +119,9 @@ export function renderRooms() {
     h('button', { class: 'tab' + (S.showArchived ? ' on' : ''), role: 'tab', 'aria-selected': String(S.showArchived), onclick: () => ((S.showArchived = true), renderRooms()) }, '已归档', archived.length ? h('span', { class: 'count' }, archived.length) : null)
   );
   const list = (S.showArchived ? archived : active).sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (b.last_activity || '').localeCompare(a.last_activity || ''));
+  const flip = flipBefore(els.list, '.room-item', 'rid');
   els.list.replaceChildren(...(list.length ? list.map(roomItem) : [h('div', { class: 'empty' }, S.showArchived ? '没有已归档的聊天' : '还没有聊天，点右上角 ＋ 开始')]));
+  flipAfter(els.list, '.room-item', 'rid', flip);
   document.title = (unreadActive ? `(${unreadActive}) ` : '') + 'SophosChat';
   emit('unread', unreadActive);
 }
@@ -139,7 +142,7 @@ function roomItem(r) {
       : null;
   const el = h(
     'button',
-    { class: 'room-item' + (r.id === S.cur ? ' on' : '') + (r.pinned ? ' pinned' : ''), type: 'button', 'aria-current': r.id === S.cur ? 'true' : null, onclick: () => (el.__held ? (el.__held = false) : emit('open-room', { id: r.id })) },
+    { class: 'room-item' + (r.id === S.cur ? ' on' : '') + (r.pinned ? ' pinned' : ''), type: 'button', dataset: { rid: r.id }, 'aria-current': r.id === S.cur ? 'true' : null, onclick: () => (el.__held ? (el.__held = false) : emit('open-room', { id: r.id })) },
     avatar(o || { id: r.id, display_name: roomTitle(r) }, 44),
     h(
       'div',
