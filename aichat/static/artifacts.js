@@ -25,7 +25,7 @@ export async function openArtifact(versionId) {
     let v = data.artifact_version;
     const content = h('div', { class: 'artifact-content' });
     const actions = h('div', { class: 'artifact-toolbar' });
-    const versionSelect = h('select', { 'aria-label': '文件版本', onchange: async () => { v = data.versions.find(x => x.id === Number(versionSelect.value)); await render(false); } },
+    const versionSelect = h('select', { 'aria-label': '文件版本', onchange: async () => { v = data.versions.find(x => x.id === Number(versionSelect.value)); syncTab(); await render(false); } },
       data.versions.map(x => h('option', { value: x.id, selected: x.id === v.id }, `v${x.number} · ${x.filename}`)));
     const sourceToggle = h('button', { class: 'btn small', type: 'button', onclick: () => render(!showSource) }, '查看源码');
     let showSource = false;
@@ -47,7 +47,12 @@ export async function openArtifact(versionId) {
       if (v.kind === 'html') content.append(h('p', { class: 'note' }, result?.status === 'passed' ? `浏览器检查通过，已验证 ${result.interactions?.length || 0} 项交互。表单默认仅为本地演示。` : '此版本的浏览器交互尚未验证；不能据此认定功能可用。'));
     };
     let close;
-    actions.append(versionSelect, sourceToggle,
+    // 在新标签页全屏打开：仍然是同一个沙箱预览地址（带隔离头），不是普通页面，所以安全；只是不再被聊天窗口框住
+    const openTab = () => h('a', { class: 'btn small', href: v.preview_url, target: '_blank', rel: 'noopener noreferrer', title: '在新标签页全屏打开（仍在隔离沙箱中运行）' }, '全屏打开');
+    const tabSlot = h('span', { class: 'tab-slot' });
+    const syncTab = () => tabSlot.replaceChildren(...(v.kind === 'html' ? [openTab()] : []));
+    syncTab();
+    actions.append(versionSelect, sourceToggle, tabSlot,
       h('button', { class: 'btn small', onclick: async () => copyText(await get(v.content_url, { text: true })) }, '复制原文'),
       h('button', { class: 'btn small', onclick: () => { const a = h('a', { href: v.download_url, download: v.filename }); a.click(); } }, '下载此版本'),
       h('button', { class: 'btn primary', onclick: () => { close(); replyArtifact(v); } }, '继续修改'));
