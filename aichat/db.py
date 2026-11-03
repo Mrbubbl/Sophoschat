@@ -273,6 +273,17 @@ CREATE TABLE IF NOT EXISTS invites(
   revoked_at TEXT,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS link_previews(
+  key TEXT PRIMARY KEY,
+  url TEXT NOT NULL,
+  title TEXT,
+  description TEXT,
+  site TEXT,
+  ok INTEGER NOT NULL DEFAULT 0,
+  image_ok INTEGER NOT NULL DEFAULT 0,
+  fetched_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS invite_uses(
   invite_id INTEGER NOT NULL REFERENCES invites(id),
   user_id INTEGER NOT NULL REFERENCES users(id),

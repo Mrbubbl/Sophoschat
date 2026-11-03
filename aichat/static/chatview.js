@@ -4,6 +4,7 @@ import { S, emit, on, room, roomTitle, roomSubtitle, otherHuman, agentUser, user
 import { buildEmojiPanel, QUICK } from './emoji.js';
 import { voiceSupported, startRecording, voicePlayer, recordingBar, MAX_MS, stopAllVoice, setAutoNext } from './voice.js';
 import { paintBg, effectiveBg, openRoomBg } from './appearance.js';
+import { linkCards } from './linkcard.js';
 import { wsSend } from './ws.js';
 import { canCall, startCall } from './call.js';
 import { artifactCard } from './artifacts.js';
@@ -397,6 +398,10 @@ function messageRow(m, prev) {
         bubble.append(h('button', { class: 'expand', type: 'button', onclick: () => (open ? expanded.delete(m.id) : expanded.add(m.id), replaceRow(m.id, m)) }, open ? '收起' : '展开全文'));
       }
     }
+    if (m.body && !m.local) {
+      const lc = linkCards(m, nearBottomStick);
+      if (lc) bubble.append(lc);
+    }
     if (m.attachment) bubble.append(attachmentEl(m.attachment, m));
     if (m.artifact) bubble.append(artifactCard(m.artifact));
   }
@@ -412,7 +417,7 @@ function messageRow(m, prev) {
   };
   // 时间显示在文字最后一行的右侧，不再单独占一行；代码块结尾、发送中/失败等情况仍放在下面
   const bodyEl = !m.deleted && !m.local && m.body ? bubble.querySelector(':scope > .body:not(.clamped)') : null;
-  const slot = bodyEl ? tailBlock(bodyEl) : null;
+  const slot = bodyEl && !bubble.querySelector(':scope > .lcards') ? tailBlock(bodyEl) : null;
   if (slot) {
     slot.append(h('span', { class: 'tpad' + (m.edited_at || m.starred ? ' wide' : '') }));
     bubble.classList.add('tinline');

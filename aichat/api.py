@@ -9,7 +9,7 @@ from fastapi import APIRouter, Body, Depends, File, Form, Query, Request, Respon
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from . import auth, backup, calls, chat, config, db, export, hub, invites, memory, prefs, push, security, tasks
+from . import auth, backup, calls, chat, config, db, export, hub, invites, linkpreview, memory, prefs, push, security, tasks
 from .errors import ApiError
 
 COOKIE = "aichat_session"
@@ -415,6 +415,17 @@ async def get_avatar(user_id: int, u=Depends(current_user)):
         raise ApiError(404, "no_avatar")
     mime = _sniff_image(p.read_bytes()[:16]) or "application/octet-stream"
     return FileResponse(p, media_type=mime, headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=31536000, immutable"})
+
+
+@router.get("/api/link-preview")
+async def link_preview(url: str = Query("", max_length=2000), u=Depends(current_user)):
+    return {"preview": await linkpreview.get_preview(uid(u), url)}
+
+
+@router.get("/api/link-preview/image/{key}")
+async def link_preview_image(key: str, u=Depends(current_user)):
+    p, mime = linkpreview.image_path(key)
+    return FileResponse(p, media_type=mime, headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=604800, immutable"})
 
 
 @router.post("/api/messages/{message_id}/transcribe")
