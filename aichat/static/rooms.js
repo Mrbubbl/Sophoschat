@@ -111,12 +111,12 @@ export function renderRooms() {
   const all = [...S.rooms.values()];
   const active = all.filter((r) => !r.archived);
   const archived = all.filter((r) => r.archived);
-  const unreadActive = active.reduce((n, r) => n + (r.muted ? 0 : r.unread), 0);
+  const unreadActive = active.reduce((n, r) => n + (r.muted ? 0 : r.unread || (r.marked_unread ? 1 : 0)), 0);
   els.tabs.replaceChildren(
     h('button', { class: 'tab' + (!S.showArchived ? ' on' : ''), role: 'tab', 'aria-selected': String(!S.showArchived), onclick: () => ((S.showArchived = false), renderRooms()) }, '聊天', unreadActive ? h('span', { class: 'badge' }, unreadActive) : null),
     h('button', { class: 'tab' + (S.showArchived ? ' on' : ''), role: 'tab', 'aria-selected': String(S.showArchived), onclick: () => ((S.showArchived = true), renderRooms()) }, '已归档', archived.length ? h('span', { class: 'count' }, archived.length) : null)
   );
-  const list = (S.showArchived ? archived : active).sort((a, b) => (b.last_activity || '').localeCompare(a.last_activity || ''));
+  const list = (S.showArchived ? archived : active).sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (b.last_activity || '').localeCompare(a.last_activity || ''));
   els.list.replaceChildren(...(list.length ? list.map(roomItem) : [h('div', { class: 'empty' }, S.showArchived ? '没有已归档的聊天' : '还没有聊天，点右上角 ＋ 开始')]));
   document.title = (unreadActive ? `(${unreadActive}) ` : '') + 'SophosChat';
   emit('unread', unreadActive);
@@ -131,17 +131,103 @@ function roomItem(r) {
     text = who + body.replace(/\s+/g, ' ');
   }
   const o = r.type === 'dm' ? otherHuman(r) : r.type === 'agent_dm' ? agentUser(r) : { id: r.id, display_name: roomTitle(r), role: 'user' };
-  return h(
+  const badge = r.unread
+    ? h('span', { class: 'badge' + (r.muted ? ' mute' : '') }, r.unread > 99 ? '99+' : r.unread)
+    : r.marked_unread
+      ? h('span', { class: 'badge dotonly' + (r.muted ? ' mute' : ''), title: '标为未读' })
+      : null;
+  const el = h(
     'button',
-    { class: 'room-item' + (r.id === S.cur ? ' on' : ''), type: 'button', 'aria-current': r.id === S.cur ? 'true' : null, onclick: () => emit('open-room', { id: r.id }) },
+    { class: 'room-item' + (r.id === S.cur ? ' on' : '') + (r.pinned ? ' pinned' : ''), type: 'button', 'aria-current': r.id === S.cur ? 'true' : null, onclick: () => (el.__held ? (el.__held = false) : emit('open-room', { id: r.id })) },
     avatar(o || { id: r.id, display_name: roomTitle(r) }, 44),
     h(
       'div',
       { class: 'ri-main' },
-      h('div', { class: 'ri-top' }, h('span', { class: 'ri-title' }, roomTitle(r), r.muted ? h('span', { class: 'muted-ico', title: '已静音' }, '🔕') : null), h('time', null, fmtRel(lm ? lm.created_at : r.created_at))),
-      h('div', { class: 'ri-bottom' }, h('span', { class: 'ri-text' }, text), r.unread ? h('span', { class: 'badge' + (r.muted ? ' mute' : '') }, r.unread > 99 ? '99+' : r.unread) : null)
+      h('div', { class: 'ri-top' }, h('span', { class: 'ri-title' }, roomTitle(r), r.muted ? h('span', { class: 'muted-ico', title: '免打扰' }, '🔕') : null), h('time', null, fmtRel(lm ? lm.created_at : r.created_at))),
+      h('div', { class: 'ri-bottom' }, h('span', { class: 'ri-text' }, text), r.pinned ? h('span', { class: 'ri-pin', title: '已置顶' }, icon('pin', 13)) : null, badge)
     )
   );
+  el.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    roomMenu(r, e.clientX, e.clientY);
+  });
+  // 手机：长按弹出菜单
+  let t = 0;
+  let sx = 0;
+  let sy = 0;
+  el.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse') return;
+    sx = e.clientX;
+    sy = e.clientY;
+    el.__held = false;
+    t = setTimeout(() => {
+      el.__held = true;
+      navigator.vibrate && navigator.vibrate(10);
+      roomMenu(r, sx, sy);
+    }, 480);
+  });
+  el.addEventListener('pointermove', (e) => Math.hypot(e.clientX - sx, e.clientY - sy) > 10 && clearTimeout(t));
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => el.addEventListener(ev, () => clearTimeout(t)));
+  return el;
+}
+
+let menuEl = null;
+function closeRoomMenu() {
+  menuEl && menuEl.remove();
+  menuEl = null;
+}
+async function setFlag(r, path, value, msg) {
+  try {
+    const res = await post(`/api/rooms/${r.id}/${path}`, { value });
+    S.rooms.set(res.room.id, { ...S.rooms.get(res.room.id), ...res.room });
+    renderRooms();
+    emit('room:update', S.rooms.get(res.room.id));
+    msg && toast(msg);
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+}
+function roomMenu(r, x, y) {
+  closeRoomMenu();
+  const unread = r.unread > 0 || r.marked_unread;
+  const items = [
+    [r.pinned ? '取消置顶' : '置顶聊天', 'pin', () => setFlag(r, 'pin', !r.pinned)],
+    [unread ? '标为已读' : '标为未读', 'unread', () => (unread ? markRoomRead(r) : setFlag(r, 'unread', true))],
+    [r.muted ? '取消免打扰' : '免打扰', 'bell', () => setFlag(r, 'mute', !r.muted, r.muted ? '已恢复通知' : '已开启免打扰，不再推送这个聊天')],
+    [r.archived ? '取消归档' : '归档', 'archive', () => setFlag(r, 'archive', !r.archived, r.archived ? '已移回聊天列表' : '已归档，有新消息时会回到列表')],
+  ];
+  menuEl = h(
+    'div',
+    { class: 'ctxmenu', role: 'menu' },
+    items.map(([label, ic, fn]) =>
+      h('button', { type: 'button', role: 'menuitem', onclick: () => (closeRoomMenu(), fn()) }, icon(ic, 16), label)
+    )
+  );
+  document.body.append(menuEl);
+  const w = menuEl.offsetWidth;
+  const hgt = menuEl.offsetHeight;
+  menuEl.style.left = Math.max(8, Math.min(x, window.innerWidth - w - 8)) + 'px';
+  menuEl.style.top = Math.max(8, Math.min(y, window.innerHeight - hgt - 8)) + 'px';
+  setTimeout(() => {
+    const off = (e) => {
+      if (menuEl && !menuEl.contains(e.target)) {
+        closeRoomMenu();
+        document.removeEventListener('pointerdown', off, true);
+      }
+    };
+    document.addEventListener('pointerdown', off, true);
+  }, 0);
+}
+async function markRoomRead(r) {
+  try {
+    await post(`/api/rooms/${r.id}/read`, { seq: 2147483647 });
+    r.unread = 0;
+    r.marked_unread = false;
+    r.last_read_seq = r.max_seq;
+    renderRooms();
+  } catch (e) {
+    toast(e.message, 'err');
+  }
 }
 
 // ------------------------------------------------------------------ 全局搜索

@@ -7,6 +7,8 @@ import { initChat, openRoom } from './chatview.js';
 import { initPanel, refresh as refreshPanel } from './panel.js';
 import { openSettings } from './settings.js';
 import { initCalls } from './call.js';
+import { applyPrefs, savePrefs } from './appearance.js';
+import { setVoiceRate, setAutoNext } from './voice.js';
 
 const root = $('#root');
 setShowTimes(showTimes()); // 套用“是否显示每条消息时间”的偏好
@@ -122,7 +124,25 @@ function showLogin(msg) {
     pass.autocomplete=registering?'new-password':'current-password';pass.minLength=registering?8:1;
     btn.textContent=registering?'注册并登录':'登录';mode.textContent=registering?'已有账号，返回登录':'没有账号？注册';err.textContent='';
   }},'没有账号？注册');
-  get('/api/registration').then(r=>{mode.hidden=!r.enabled;}).catch(()=>{});
+  // 邀请链接：/?invite=xxx —— 显示邀请人并直接进入注册
+  const invite = new URLSearchParams(location.search).get('invite');
+  const inviteNote = h('p', { class: 'invite-note', hidden: true });
+  if (invite) {
+    get('/api/invite-info' + '?token=' + encodeURIComponent(invite)).then((r) => {
+      if (r.valid) {
+        inviteNote.textContent = `${r.inviter} 邀请你加入 SophosChat` + (r.room_title ? `，并进入「${r.room_title}」` : '') + '。设置用户名和密码即可开始。';
+        inviteNote.hidden = false;
+        if (!registering) mode.click();
+        mode.hidden = false;
+      } else {
+        inviteNote.textContent = { expired: '这个邀请已过期', used_up: '这个邀请已被用完', revoked: '这个邀请已被撤销' }[r.reason] || '邀请链接无效';
+        inviteNote.textContent += '，请向邀请人重新索取。已有账号可以直接登录。';
+        inviteNote.classList.add('bad');
+        inviteNote.hidden = false;
+      }
+    }).catch(() => {});
+  }
+  get('/api/registration').then(r=>{if(!invite)mode.hidden=!r.enabled;}).catch(()=>{});
   const form = h(
     'form',
     {
@@ -133,7 +153,8 @@ function showLogin(msg) {
         err.textContent = '';
         try {
           if(registering && pass.value!==confirm.value) throw new Error('两次密码不一致');
-          await post(registering?'/api/register':'/api/login', { username: user.value.trim(), password: pass.value, ...(registering?{display_name:display.value.trim()}: {}) }, { quiet401: true });
+          await post(registering?'/api/register':'/api/login', { username: user.value.trim(), password: pass.value, ...(registering?{display_name:display.value.trim(), ...(invite?{invite}:{})}: {}) }, { quiet401: true });
+          if (invite) history.replaceState(null, '', '/');
           await start();
         } catch (ex) {
           err.textContent = ex.message;
@@ -145,6 +166,7 @@ function showLogin(msg) {
     h('div', { class: 'login-logo' }, h('img', { class: 'logo-img', src: '/static/icon.svg', alt: 'SophosChat' })),
     h('h1', null, 'SophosChat'),
     h('p', { class: 'muted' }, '自部署的私人聊天，Agent 默认不打扰，只在需要时出现。'),
+    inviteNote,
     user,
     display,
     pass,
@@ -168,6 +190,11 @@ async function start() {
   }
   S.me = me.user;
   S.agent = me.agent;
+  if (me.prefs) {
+    applyPrefs(me.prefs);
+    setVoiceRate(me.prefs.voice_rate, (r) => savePrefs({ voice_rate: r }));
+    setAutoNext(me.prefs.autoplay);
+  }
   buildShell();
   renderMe();
   await Promise.all([loadUsers(), loadRooms()]);

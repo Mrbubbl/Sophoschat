@@ -5,17 +5,20 @@ import { showTimes, setShowTimes, h, icon, iconBtn, avatar, modal, toast, ask, c
 import { api } from './api.js';
 import { loadUsers } from './rooms.js';
 import { pushStatus, enablePush, disablePush } from './push.js';
+import { ACCENTS, FONTS, applyPrefs, savePrefs, bgPicker, paintBg, pickImage, uploadBgImage } from './appearance.js';
+import { setVoiceRate, setAutoNext } from './voice.js';
+import { openInviteDialog, renderInviteList } from './invite.js';
 
 let lastToken = null; // 令牌只在刚创建时可见，只保留在内存里
 
 export function openSettings(tab = 'account') {
   const content = h('div', { class: 'set-content' });
   const nav = h('nav', { class: 'set-nav', role: 'tablist' });
-  const tabs = [['account', '账号与通知'], ['agent', 'Agent 接入'], ...(S.me.role==='owner'?[['tools','工具与 MCP']]:[]), ...(S.me.role === 'owner' || S.me.can_add_users ? [['members', '成员']] : []), ['about', '关于']];
+  const tabs = [['account', '账号与通知'], ['look', '外观与语音'], ['agent', 'Agent 接入'], ...(S.me.role==='owner'?[['tools','工具与 MCP']]:[]), ...(S.me.role === 'owner' || S.me.can_add_users ? [['members', '成员']] : []), ['about', '关于']];
   const show = (t) => {
     nav.replaceChildren(...tabs.map(([k, l]) => h('button', { type: 'button', role: 'tab', class: k === t ? 'on' : '', 'aria-selected': String(k === t), onclick: () => show(k) }, l)));
     content.replaceChildren(h('div', { class: 'loading' }, '加载中…'));
-    ({ account: renderAccount, agent: renderAgent, tools:renderTools, members: renderMembers, about: renderAbout })[t](content);
+    ({ account: renderAccount, look: renderLook, agent: renderAgent, tools:renderTools, members: renderMembers, about: renderAbout })[t](content);
   };
   const close = modal({ title: '设置', wide: true, body: h('div', { class: 'settings' }, nav, content) });
   window.__closeSettings = close;
@@ -243,12 +246,56 @@ async function renderTools(el) {
 }
 
 // ------------------------------------------------------------------ 成员
+// ------------------------------------------------------------------ 外观与语音
+function renderLook(el) {
+  const p = S.prefs || {};
+  const seg = (items, cur, key) =>
+    h('div', { class: 'seg', role: 'radiogroup' }, items.map(([v, label]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(cur === v), class: cur === v ? 'on' : '', onclick: async () => (await savePrefs({ [key]: v })) && renderLook(el) }, label)));
+  const sw = (key, label, hint) => h('label', { class: 'switch-row' }, h('input', { type: 'checkbox', checked: !!p[key], onchange: async (e) => { const r = await savePrefs({ [key]: e.target.checked }); if (r && key === 'autoplay') setAutoNext(r.autoplay); } }), h('span', { class: 'sw-text' }, label, hint ? h('small', null, hint) : null));
+  const preview = h('div', { class: 'bgbig small' }, h('div', { class: 'fake other' }, '字号和颜色在这里预览'), h('div', { class: 'fake own' }, '我发的消息是这个颜色'));
+  paintBg(preview, p.bg);
+  el.replaceChildren(
+    h('h3', null, '主题色'),
+    h('div', { class: 'accents' }, ACCENTS.map((a) => {
+      const b = h('button', { type: 'button', class: 'accent-sw' + (p.accent === a.id ? ' on' : ''), title: a.name, 'aria-label': a.name, 'aria-pressed': String(p.accent === a.id), onclick: async () => (await savePrefs({ accent: a.id })) && renderLook(el) }, h('span', null), h('small', null, a.name));
+      b.firstChild.style.background = a.c;
+      return b;
+    })),
+    h('h3', null, '字号'),
+    seg(FONTS, p.font || 'm', 'font'),
+    preview,
+    h('h3', null, '默认聊天背景'),
+    h('p', { class: 'muted small' }, '所有聊天默认用这个背景；也可以在某个聊天的「⋯ → 聊天背景」里单独设置。'),
+    bgPicker(p.bg ?? null, async (bg) => {
+      const r = await savePrefs({ bg });
+      r && paintBg(preview, r.bg);
+    }, { allowDefault: false }),
+    h('div', { class: 'row-actions' },
+      h('button', { class: 'btn small', type: 'button', onclick: () => pickImage(async (f) => { const r = await uploadBgImage(f); if (r) { await savePrefs({ bg: 'image' }); renderLook(el); toast('背景图已更新'); } }) }, icon('image', 15), p.bg_image_url ? '更换背景图' : '上传自己的背景图'),
+      p.bg_image_url ? h('button', { class: 'link', type: 'button', onclick: async () => { try { const r = await api('DELETE', '/api/me/background'); applyPrefs(r.prefs); if (S.prefs.bg === 'image') await savePrefs({ bg: null }); renderLook(el); } catch (e) { toast(e.message, 'err'); } } }, '移除背景图') : null),
+    sw('dim', '深色模式下调暗背景', '晚上看不刺眼，文字更清楚'),
+    h('h3', null, 'AI 回复'),
+    sw('collapse_long', '长回复默认折叠', '超过一屏的 Agent 回复只显示开头，点「展开全文」看完整内容'),
+    h('h3', null, '语音消息'),
+    h('div', { class: 'field' }, '默认播放速度', seg([[1, '1×'], [1.5, '1.5×'], [2, '2×']], p.voice_rate || 1, 'voice_rate')),
+    sw('autoplay', '自动连播', '听完一条后，自动播放下一条还没听过的语音'),
+    h('p', { class: 'muted small' }, '录音：按住麦克风说话，松开发送；上滑锁定后可以松手、暂停和试听；左滑取消。长按任意文字消息可以「朗读」。')
+  );
+  setVoiceRate(p.voice_rate || 1);
+}
+
 async function renderMembers(el) {
   await loadUsers();
+  const invBox = h('div', { class: 'inv-list' });
+  renderInviteList(invBox);
   const u = h('input', { type: 'text', placeholder: '用户名（字母数字）', autocomplete: 'off', 'aria-label': '用户名' });
   const d = h('input', { type: 'text', placeholder: '显示名', 'aria-label': '显示名' });
   const p = h('input', { type: 'password', placeholder: '初始密码（至少 8 位）', autocomplete: 'new-password', 'aria-label': '初始密码' });
   el.replaceChildren(
+    h('h3', null, '邀请新成员'),
+    h('div', { class: 'card' }, h('p', { class: 'muted small' }, '生成二维码或链接发给对方，对方扫码就能注册；可以设置有效期、人数，并直接拉进某个群。'), h('button', { class: 'btn primary', type: 'button', onclick: () => openInviteDialog() }, icon('qr', 16), '生成邀请二维码')),
+    h('h3', null, '已发出的邀请'),
+    invBox,
     h('h3', null, '成员'),
     h('div', { class: 'members big' }, [S.me, ...S.users].map((m) => h('div', { class: 'member' }, avatar(m, 34), h('div', null, h('b', null, m.display_name), h('div', { class: 'muted' }, '@' + m.username + (m.role === 'owner' ? ' · Owner' : m.can_add_users ? ' · 可添加成员' : ''))),
       S.me.role === 'owner' && m.role === 'user' ? h('label', { class: 'perm', title: '允许这位成员添加新账号' }, h('input', { type: 'checkbox', checked: !!m.can_add_users, onchange: async (e) => {
@@ -262,7 +309,7 @@ async function renderMembers(el) {
           e.target.checked = !e.target.checked;
         }
       } }), h('span', null, '可添加成员')) : null))),
-    h('h3', null, '添加成员'),
+    h('h3', null, '直接创建账号'),
     h('div', { class: 'form' }, u, d, p, h('button', { class: 'btn primary', type: 'button', onclick: async () => {
       try {
         await post('/api/users', { username: u.value, display_name: d.value || null, password: p.value });

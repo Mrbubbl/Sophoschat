@@ -261,9 +261,27 @@ CREATE TABLE IF NOT EXISTS kv(
   key TEXT PRIMARY KEY,
   value TEXT
 );
+CREATE TABLE IF NOT EXISTS invites(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  token_hash TEXT NOT NULL UNIQUE,
+  created_by INTEGER NOT NULL REFERENCES users(id),
+  room_id INTEGER REFERENCES rooms(id),
+  note TEXT,
+  max_uses INTEGER NOT NULL DEFAULT 1,
+  uses INTEGER NOT NULL DEFAULT 0,
+  expires_at TEXT NOT NULL,
+  revoked_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS invite_uses(
+  invite_id INTEGER NOT NULL REFERENCES invites(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(invite_id, user_id)
+);
 """
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 # 旧库升级：只做加列，不删不改已有数据
 _ADD_COLUMNS = [
@@ -285,6 +303,12 @@ _ADD_COLUMNS = [
     ("agent_tasks", "not_before", "TEXT"),
     ("messages", "artifact_version_id", "INTEGER"),
     ("messages", "is_test", "INTEGER NOT NULL DEFAULT 0"),
+    ("room_members", "pinned", "INTEGER NOT NULL DEFAULT 0"),
+    ("room_members", "marked_unread", "INTEGER NOT NULL DEFAULT 0"),
+    ("room_members", "bg", "TEXT"),
+    ("users", "prefs", "TEXT"),
+    ("users", "bg_image", "TEXT"),
+    ("attachments", "waveform", "TEXT"),
 ]
 
 

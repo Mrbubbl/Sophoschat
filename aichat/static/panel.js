@@ -4,6 +4,8 @@ import { S, emit, on, room, roomTitle, userById, agentUser } from './store.js';
 import { h, icon, iconBtn, avatar, fmtFull, fmtTime, fmtDay, toast, ask, modal, toggle } from './util.js';
 import { resultItem } from './chatview.js';
 import { artifactCard } from './artifacts.js';
+import { openInviteDialog } from './invite.js';
+import { openRoomBg } from './appearance.js';
 
 const els = {};
 const openTopics = new Set();
@@ -452,6 +454,9 @@ async function renderRoom() {
   const box = h('div', { class: 'rset' });
   box.append(h('h3', null, '成员'));
   box.append(h('div', { class: 'members' }, r.members.map((m) => h('div', { class: 'member' }, avatar(m, 30), h('span', null, m.display_name), m.role === 'agent' ? h('span', { class: 'agent-badge' }, 'Agent') : null, r.type === 'group' && m.role !== 'agent' && m.id !== S.me.id ? iconBtn('close', '移出成员', () => removeMember(m)) : null))));
+  if (r.type === 'group' && (S.me.role === 'owner' || S.me.can_add_users)) {
+    box.append(h('button', { class: 'btn small', type: 'button', onclick: () => openInviteDialog({ roomId: r.id }) }, icon('qr', 15), '扫码邀请新成员进群'));
+  }
   if (r.type === 'group') {
     const candidates = S.users.filter((u) => !r.members.some((m) => m.id === u.id));
     if (candidates.length) {
@@ -502,7 +507,9 @@ async function renderRoom() {
     }
   });
   box.append(h('label', { class: 'field' }, h('span', null, '消息保留期限（所有成员）'), ret));
-  box.append(toggle('静音（不显示未读提醒）', r.muted, (v) => post(`/api/rooms/${r.id}/mute`, { value: v })));
+  box.append(h('button', { class: 'btn small', type: 'button', onclick: () => openRoomBg(r) }, icon('palette', 15), '聊天背景'));
+  box.append(toggle('置顶这个聊天', !!r.pinned, (v) => post(`/api/rooms/${r.id}/pin`, { value: v })));
+  box.append(toggle('免打扰（不推送通知）', r.muted, (v) => post(`/api/rooms/${r.id}/mute`, { value: v })));
   box.append(toggle('归档此聊天（仅对我）', r.archived, (v) => post(`/api/rooms/${r.id}/archive`, { value: v }), '归档不删除任何内容，仍可搜索与导出；有新消息时会回到主列表'));
   box.append(h('h3', null, '导出'));
   const fmt = h('select', { 'aria-label': '导出格式' }, h('option', { value: 'md' }, 'Markdown'), h('option', { value: 'json' }, 'JSON'));
