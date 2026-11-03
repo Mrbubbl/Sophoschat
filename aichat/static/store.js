@@ -57,5 +57,5 @@ export function agentUser(r) {
 
 export function agentStateText(st) {
   if (!st) return '';
-  return { unconfigured: '未配置', offline: '离线', online: '在线' }[st.state] || st.state;
+  return { unconfigured: '未配置', offline: '离线', online: '在线', paused: '已暂停', degraded: '调用异常' }[st.state] || st.state;
 }

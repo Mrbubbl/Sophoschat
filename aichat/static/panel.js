@@ -3,6 +3,7 @@ import { get, post, patch, del, qs } from './api.js';
 import { S, emit, on, room, roomTitle, userById, agentUser } from './store.js';
 import { h, icon, iconBtn, avatar, fmtFull, fmtTime, fmtDay, toast, ask, modal, toggle } from './util.js';
 import { resultItem } from './chatview.js';
+import { artifactCard } from './artifacts.js';
 
 const els = {};
 const openTopics = new Set();
@@ -11,6 +12,7 @@ let seq = 0; // 用于丢弃过期的异步渲染
 const TABS = [
   ['memory', '主题记忆'],
   ['summaries', '回顾'],
+  ['artifacts', '交付文件'],
   ['stars', '收藏'],
   ['room', '会话设置'],
 ];
@@ -23,6 +25,7 @@ export function initPanel(container) {
   els.body = h('div', { class: 'pbody' });
   container.append(h('header', { class: 'panel-head' }, iconBtn('back', '返回聊天', () => emit('toggle-panel'), 'only-narrow'), h('h2', null, '回顾与记忆'), h('div', { class: 'grow' }), iconBtn('close', '收起面板', () => emit('toggle-panel'), 'only-wide')), els.tabs, els.body);
   on('room:opened', () => refresh());
+  on('msg:new', m => m.room_id === S.cur && S.panelTab === 'artifacts' && refresh());
   on('memory:update', (id) => id === S.cur && ['memory', 'summaries'].includes(S.panelTab) && refresh(true));
   on('stars:changed', () => S.panelTab === 'stars' && refresh());
   on('room:update', (r) => r.id === S.cur && S.panelTab === 'room' && refresh());
@@ -43,7 +46,7 @@ export function refresh(keepScroll) {
   }
   const top = els.body.scrollTop;
   const done = () => keepScroll && (els.body.scrollTop = top);
-  const f = { memory: renderMemory, summaries: renderSummaries, stars: renderStars, room: renderRoom }[S.panelTab];
+  const f = { memory: renderMemory, summaries: renderSummaries, artifacts: renderArtifacts, stars: renderStars, room: renderRoom }[S.panelTab];
   Promise.resolve(f()).then(done);
 }
 
@@ -51,6 +54,13 @@ const guard = () => {
   const t = ++seq;
   return () => t === seq && S.cur && room(S.cur);
 };
+
+async function renderArtifacts() {
+  const current = guard();
+  const data = await get(`/api/rooms/${S.cur}/artifacts`);
+  if (!current()) return;
+  els.body.replaceChildren(data.versions.length ? h('div', { class: 'artifact-list' }, data.versions.map(artifactCard)) : h('p', { class: 'empty' }, '在聊天里请 AI 制作 Markdown 文档或 HTML 网页，完成后文件会出现在这里。'));
+}
 
 // ------------------------------------------------------------------ 主题记忆
 async function renderMemory() {
