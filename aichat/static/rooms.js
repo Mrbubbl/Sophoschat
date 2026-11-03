@@ -277,6 +277,7 @@ export function openNewChat() {
   const picks = new Set();
   const render = () => {
     body.replaceChildren(
+      ...[
       h(
         'div',
         { class: 'seg', role: 'tablist' },
@@ -286,6 +287,7 @@ export function openNewChat() {
       mode === 'group' ? title : null,
       h('div', { class: 'pick-list' }, S.users.length ? S.users.map((u) => userRow(u)) : h('div', { class: 'empty' }, '还没有其他用户。请 Owner 在 设置 → 成员 里添加。')),
       h('label', { class: 'check' }, withAgent, h('span', null, '让 Agent 加入这个聊天', h('small', null, 'Agent 默认不打扰，只在被 @ 时回复；并会在后台静默整理主题记忆。可随时在会话设置里关闭。')))
+      ].filter(Boolean)
     );
   };
   const userRow = (u) => {

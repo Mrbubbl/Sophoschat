@@ -9,7 +9,7 @@ export const EASE = {
   accel: 'cubic-bezier(0.3, 0, 0.8, 0.15)', // 强调加速：退出
   spring: 'cubic-bezier(0.34, 1.56, 0.64, 1)', // 轻微回弹：点赞、表情
 };
-export const DUR = { fast: 120, short: 180, medium: 280, long: 400 };
+export const DUR = { fast: 150, short: 240, medium: 380, long: 520 };
 
 const mq = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
 export function motionOn() {
@@ -26,13 +26,13 @@ const FRAMES = {
   bounce: [{ transform: 'scale(0.5)', opacity: 0 }, { transform: 'scale(1.12)', opacity: 1, offset: 0.6 }, { transform: 'none', opacity: 1 }],
 };
 const DEFAULTS = {
-  rise: [DUR.short + 40, EASE.decel],
-  pop: [DUR.short + 60, EASE.decel],
-  sheet: [DUR.medium + 40, EASE.decel],
+  rise: [DUR.short + 80, EASE.decel],
+  pop: [DUR.short + 100, EASE.decel],
+  sheet: [DUR.medium + 80, EASE.decel],
   fade: [DUR.short, EASE.standard],
-  forward: [DUR.medium + 20, EASE.decel],
-  back: [DUR.medium + 20, EASE.decel],
-  bounce: [DUR.short + 80, EASE.standard],
+  forward: [DUR.medium + 40, EASE.decel],
+  back: [DUR.medium + 40, EASE.decel],
+  bounce: [DUR.short + 140, EASE.standard],
 };
 
 // 进入动画。返回 Animation（或 null：动效关闭时直接什么都不做）
@@ -69,6 +69,6 @@ export function flipAfter(container, selector, key, before) {
     if (old == null) continue;
     const dy = old - el.getBoundingClientRect().top;
     if (Math.abs(dy) < 2 || Math.abs(dy) > 600) continue;
-    el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: DUR.medium - 40, easing: EASE.standard });
+    el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: DUR.medium, easing: EASE.standard });
   }
 }

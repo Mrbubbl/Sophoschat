@@ -1383,7 +1383,7 @@ function checkMention() {
   const r = room(S.cur);
   if (!r) return;
   const pos = els.input.selectionStart;
-  const m = els.input.value.slice(0, pos).match(/(?:^|\s)@([A-Za-z0-9_\-]*)$/);
+  const m = els.input.value.slice(0, pos).match(/(?:^|[^A-Za-z0-9_@])@([A-Za-z0-9_\-一-鿿]*)$/);
   if (!m) {
     els.mention.hidden = true;
     return;
@@ -1416,7 +1416,7 @@ function renderMention() {
 
 function pickMention(u) {
   const pos = els.input.selectionStart;
-  const before = els.input.value.slice(0, pos).replace(/@[A-Za-z0-9_\-]*$/, '@' + u.username + ' ');
+  const before = els.input.value.slice(0, pos).replace(/@[A-Za-z0-9_\-一-鿿]*$/, '@' + u.username + ' ');
   els.input.value = before + els.input.value.slice(pos);
   els.input.setSelectionRange(before.length, before.length);
   els.mention.hidden = true;

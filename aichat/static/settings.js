@@ -17,6 +17,7 @@ export function openSettings(tab = 'account') {
   const tabs = [['account', '账号与通知'], ['look', '外观与语音'], ['agent', 'Agent 接入'], ...(S.me.role==='owner'?[['tools','工具与 MCP']]:[]), ...(S.me.role === 'owner' || S.me.can_add_users ? [['members', '成员']] : []), ['about', '关于']];
   const show = (t) => {
     nav.replaceChildren(...tabs.map(([k, l]) => h('button', { type: 'button', role: 'tab', class: k === t ? 'on' : '', 'aria-selected': String(k === t), onclick: () => show(k) }, l)));
+    nav.querySelector('.on')?.scrollIntoView({ inline: 'center', block: 'nearest' });
     content.replaceChildren(h('div', { class: 'loading' }, '加载中…'));
     ({ account: renderAccount, look: renderLook, agent: renderAgent, tools:renderTools, members: renderMembers, about: renderAbout })[t](content);
   };

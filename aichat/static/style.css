@@ -842,7 +842,7 @@ html[data-font='xl'] .cbox textarea { font-size: 18px; }
 .ac-link:hover { text-decoration: underline; }
 
 /* =================================================================== v17：动效（Material 3 的缓动与时长） */
-:root { --ease-standard: cubic-bezier(0.2, 0, 0, 1); --ease-decel: cubic-bezier(0.05, 0.7, 0.1, 1); --ease-accel: cubic-bezier(0.3, 0, 0.8, 0.15); --d-fast: 120ms; --d-short: 180ms; --d-medium: 280ms; }
+:root { --ease-standard: cubic-bezier(0.2, 0, 0, 1); --ease-decel: cubic-bezier(0.05, 0.7, 0.1, 1); --ease-accel: cubic-bezier(0.3, 0, 0.8, 0.15); --d-fast: 150ms; --d-short: 240ms; --d-medium: 380ms; }
 /* 菜单：从触发位置的右上角展开 */
 @keyframes pop { from { transform: scale(0.92); opacity: 0; } to { transform: none; opacity: 1; } }
 .ctxmenu { transform-origin: top right; animation: pop var(--d-short) var(--ease-decel); }
@@ -864,3 +864,9 @@ html[data-font='xl'] .cbox textarea { font-size: 18px; }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 /* 关掉动效：设置里关闭，或系统开启了"减少动态效果" */
 html[data-motion='off'] *, html[data-motion='off'] *::before, html[data-motion='off'] *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+
+/* ---------- v18：细节打磨 ---------- */
+@media (max-width: 760px) {
+  .set-nav { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); padding-right: 24px; scroll-behavior: smooth; }
+}
+.newchat .seg + input { margin-top: 10px; }
