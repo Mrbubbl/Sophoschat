@@ -5,6 +5,7 @@ import { buildEmojiPanel, QUICK } from './emoji.js';
 import { voiceSupported, startRecording, voicePlayer, recordingBar, MAX_MS, stopAllVoice, setAutoNext } from './voice.js';
 import { paintBg, effectiveBg, openRoomBg } from './appearance.js';
 import { linkCards } from './linkcard.js';
+import { openLayer } from './nav.js';
 import { wsSend } from './ws.js';
 import { canCall, startCall } from './call.js';
 import { artifactCard } from './artifacts.js';
@@ -464,7 +465,14 @@ function attachmentEl(a, m) {
 }
 
 function lightbox(a) {
-  const close = () => ov.remove();
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    ov.remove();
+    leave();
+  };
+  const leave = openLayer(close);
   const ov = h('div', { class: 'lightbox', onclick: close }, h('img', { src: a.url, alt: a.filename }), h('button', { class: 'lb-close', type: 'button', 'aria-label': '关闭', onclick: close }, icon('close', 22)));
   document.body.append(ov);
   const k = (e) => e.key === 'Escape' && (close(), document.removeEventListener('keydown', k));

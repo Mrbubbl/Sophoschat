@@ -8,6 +8,7 @@ import { initPanel, refresh as refreshPanel } from './panel.js';
 import { openSettings } from './settings.js';
 import { initCalls } from './call.js';
 import { applyPrefs, savePrefs } from './appearance.js';
+import { initNav, syncView } from './nav.js';
 import { setVoiceRate, setAutoNext } from './voice.js';
 
 const root = $('#root');
@@ -15,10 +16,20 @@ setShowTimes(showTimes()); // 套用“是否显示每条消息时间”的偏�
 let built = false;
 let app;
 
+// 返回键：手机上“聊天 / 回顾面板”各算一层；按返回先退一层，不会直接回桌面
+initNav({
+  onBackView: () => {
+    S.view = S.view === 'panel' ? 'chat' : 'list';
+    emit('view');
+  },
+});
+const VIEW_DEPTH = { list: 0, chat: 1, panel: 2 };
+
 function applyLayout() {
   if (!app) return;
   app.dataset.view = S.view;
   app.dataset.panel = S.panelOpen ? 'open' : 'closed';
+  syncView(window.innerWidth < 900 ? VIEW_DEPTH[S.view] || 0 : 0);
 }
 
 function buildShell() {

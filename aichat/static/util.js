@@ -1,4 +1,6 @@
 // 通用小工具：DOM 构建、安全的 Markdown 渲染（不使用 innerHTML）、时间格式、图标、提示与对话框
+import { openLayer } from './nav.js';
+
 export const $ = (sel, el = document) => el.querySelector(sel);
 export const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 
@@ -375,11 +377,16 @@ export function toast(msg, kind = '') {
 }
 
 export function modal({ title, body, actions = [], wide = false, onClose }) {
+  let closed = false;
   const close = () => {
+    if (closed) return;
+    closed = true;
     document.removeEventListener('keydown', onKey, true);
     overlay.remove();
+    leave(); // 同步浏览器历史（返回键）
     onClose && onClose();
   };
+  const leave = openLayer(close);
   const onKey = (e) => {
     if (e.key === 'Escape') {
       e.stopPropagation();
