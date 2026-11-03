@@ -53,6 +53,8 @@ def validate_sources(room_id: int, sources: list[dict]) -> list:
         m = db.one("SELECT * FROM messages WHERE id=?", (s["message_id"],))
         if not m or m["room_id"] != room_id:
             raise ApiError(422, "invalid_source", "来源不在当前会话中", message_id=s["message_id"])
+        if m["is_test"]:
+            raise ApiError(422, "invalid_source", "接入自检数据不能成为长期记忆来源")
         if m["deleted_at"]:
             raise ApiError(409, "stale_source", "来源消息已被删除", message_id=s["message_id"], reason="deleted")
         if m["version"] != s["version"]:
@@ -237,13 +239,13 @@ def build_batch(task) -> dict:
         msgs = []
         if ids:
             q = ",".join("?" * len(ids))
-            msgs = db.all(f"SELECT * FROM messages WHERE id IN ({q}) AND seq>? ORDER BY seq", ids + [hist])
+            msgs = db.all(f"SELECT * FROM messages WHERE id IN ({q}) AND seq>? AND is_test=0 ORDER BY seq", ids + [hist])
     else:
-        msgs = db.all("SELECT * FROM messages WHERE room_id=? AND seq>=? AND seq<=? AND seq>? ORDER BY seq", (room_id, params["from_seq"], params["to_seq"], hist))
+        msgs = db.all("SELECT * FROM messages WHERE room_id=? AND seq>=? AND seq<=? AND seq>? AND is_test=0 ORDER BY seq", (room_id, params["from_seq"], params["to_seq"], hist))
     ctx = []
     if msgs:
         lo = msgs[0]["seq"]
-        ctx = list(reversed(db.all("SELECT * FROM messages WHERE room_id=? AND seq<? AND seq>? AND deleted_at IS NULL ORDER BY seq DESC LIMIT 15", (room_id, lo, hist))))
+        ctx = list(reversed(db.all("SELECT * FROM messages WHERE room_id=? AND seq<? AND seq>? AND deleted_at IS NULL AND is_test=0 ORDER BY seq DESC LIMIT 15", (room_id, lo, hist))))
     stale = []
     for m in msgs:
         for it in db.all("SELECT DISTINCT i.* FROM memory_items i, json_each(i.sources) j WHERE i.room_id=? AND i.source_stale=1 AND json_extract(j.value,'$.message_id')=?", (room_id, m["id"])):

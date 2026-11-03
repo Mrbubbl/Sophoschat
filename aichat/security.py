@@ -46,8 +46,9 @@ def token_hash(token: str) -> str:
 
 
 # ---- 任务作用域令牌：只绑定“某个任务 + 某个 Room + 某个用途” -------------------
-def sign_task_token(secret: bytes, task_id: int, room_id: int, purpose: str, ttl: int) -> str:
-    payload = {"t": task_id, "r": room_id, "p": purpose, "x": int(time.time()) + ttl, "n": secrets.token_hex(4)}
+def sign_task_token(secret: bytes, task_id: int, room_id: int, purpose: str, ttl: int, *, generation: str, credential_id: int, owner: str) -> str:
+    payload = {"t": task_id, "r": room_id, "p": purpose, "x": int(time.time()) + ttl,
+               "g": generation, "c": credential_id, "o": owner}
     raw = _b64(json.dumps(payload, separators=(",", ":")).encode())
     sig = _b64(hmac.new(secret, raw.encode(), hashlib.sha256).digest())
     return f"tt.{raw}.{sig}"

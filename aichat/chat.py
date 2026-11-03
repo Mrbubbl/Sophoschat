@@ -150,6 +150,13 @@ def ser_messages(rows, viewer_id: int | None = None) -> list[dict]:
     out = []
     for r in rows:
         deleted = r["deleted_at"] is not None
+        artifact = None
+        if r["artifact_version_id"] and not deleted:
+            from . import artifacts
+            try:
+                artifact = artifacts.serialize(artifacts.version_row(r["artifact_version_id"]))
+            except ApiError:
+                pass
         out.append(
             {
                 "id": r["id"],
@@ -162,6 +169,7 @@ def ser_messages(rows, viewer_id: int | None = None) -> list[dict]:
                 "reply_to": r["reply_to"],
                 "reply_preview": _preview(replies.get(r["reply_to"])) if r["reply_to"] else None,
                 "attachment": None if deleted else ser_attachment(atts.get(r["attachment_id"])),
+                "artifact": artifact,
                 "mentions": db.jd(r["mentions"], []),
                 "version": r["version"],
                 "created_at": r["created_at"],
@@ -376,13 +384,17 @@ def remove_member(room_id: int, actor_id: int, user_id: int) -> None:
 
 # ---------------------------------------------------------------- 消息
 def parse_mentions(room_id: int, body: str) -> list[int]:
-    names = {n.lower() for n in MENTION_RE.findall(body or "")}
+    # Quoted material is data. Only mentions in the user's own prose trigger.
+    prose = re.sub(r"```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)", "", body or "")
+    prose = re.sub(r"`[^`\n]*`", "", prose)
+    prose = "\n".join(line for line in prose.splitlines() if not line.lstrip().startswith(">"))
+    names = {n.lower() for n in MENTION_RE.findall(prose)}
     if not names:
         return []
     return [m["id"] for m in member_rows(room_id) if m["username"].lower() in names]
 
 
-def send_message(room_id: int, sender_id: int, body: str, client_msg_id: str | None = None, reply_to: int | None = None, attachment_id: int | None = None) -> tuple[dict, bool]:
+def send_message(room_id: int, sender_id: int, body: str, client_msg_id: str | None = None, reply_to: int | None = None, attachment_id: int | None = None, *, artifact_version_id: int | None = None, is_test: bool = False) -> tuple[dict, bool]:
     body = (body or "").strip()
     if not body and not attachment_id:
         raise ApiError(400, "empty_message", "消息不能为空")
@@ -414,13 +426,17 @@ def send_message(room_id: int, sender_id: int, body: str, client_msg_id: str | N
             "VALUES(?,?,?,?,?,?,?,?,?,1,?)",
             (room_id, seq, sender_id, kind, body, reply_to, attachment_id, client_msg_id, db.jl(mentions), db.now()),
         )
+        db.run("UPDATE messages SET artifact_version_id=?,is_test=? WHERE id=?", (artifact_version_id, int(is_test), mid))
+        if artifact_version_id:
+            db.run("UPDATE artifact_versions SET message_id=? WHERE id=?", (mid, artifact_version_id))
+            db.run("UPDATE artifacts SET current_version_id=? WHERE id=(SELECT artifact_id FROM artifact_versions WHERE id=?)", (artifact_version_id, artifact_version_id))
         db.run("INSERT INTO message_versions(message_id, version, body, created_at) VALUES(?,1,?,?)", (mid, body, db.now()))
         if attachment_id:
             db.run("UPDATE attachments SET message_id=? WHERE id=?", (mid, attachment_id))
         db.run("UPDATE room_members SET last_read_seq=MAX(last_read_seq, ?) WHERE room_id=? AND user_id=?", (seq, room_id, sender_id))
         add_event(room_id, "message.created", mid, 1, sender_id)
         msg = db.one("SELECT * FROM messages WHERE id=?", (mid,))
-        if kind == "human":
+        if kind == "human" and not is_test:
             tasks.maybe_create_chat_task(room, msg, mentions)
         data = ser_message(msg)
         _notify(room_id, {"type": "message.created", "message": data})
