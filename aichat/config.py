@@ -33,6 +33,9 @@ class Config:
     max_upload_mb: int = 25
     cookie_secure: bool = False
     allowed_origins: tuple[str, ...] = field(default_factory=tuple)
+    allow_legacy_agent: bool = False
+    start_agent_service: bool = True
+    agent_base_url: str = "http://127.0.0.1:8000"
 
     @property
     def db_path(self) -> Path:
@@ -75,6 +78,9 @@ def load(data_dir: str | os.PathLike | None = None, **overrides) -> Config:
         allowed_origins=tuple(
             o.strip() for o in os.environ.get("AICHAT_ALLOWED_ORIGINS", "").split(",") if o.strip()
         ),
+        allow_legacy_agent=os.environ.get("AICHAT_ALLOW_LEGACY_AGENT") == "1",
+        start_agent_service=os.environ.get("AICHAT_START_AGENT_SERVICE", "1") == "1",
+        agent_base_url=os.environ.get("AICHAT_AGENT_BASE_URL", "http://127.0.0.1:8000"),
     )
     for k, v in overrides.items():
         setattr(c, k, v)

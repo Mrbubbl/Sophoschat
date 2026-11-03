@@ -1,0 +1,62 @@
+"""Registration and integration settings acceptance. Uses a disposable server."""
+import argparse,json,secrets
+from pathlib import Path
+from playwright.sync_api import sync_playwright,expect
+
+p=argparse.ArgumentParser()
+p.add_argument('--url',default='http://127.0.0.1:18763')
+p.add_argument('--login-file',required=True)
+p.add_argument('--browser',required=True)
+p.add_argument('--out',required=True)
+args=p.parse_args();out=Path(args.out);out.mkdir(parents=True,exist_ok=True)
+owner=json.loads(Path(args.login_file).read_text());errors=[]
+with sync_playwright() as pw:
+    browser=pw.chromium.launch(executable_path=args.browser,headless=True,chromium_sandbox=True)
+    context=browser.new_context(viewport={'width':1440,'height':1000})
+    page=context.new_page();page.on('pageerror',lambda e:errors.append(str(e)))
+    page.goto(args.url)
+    page.get_by_role('button',name='没有账号？注册',exact=True).click()
+    page.get_by_label('用户名',exact=True).fill('browser_'+secrets.token_hex(4))
+    page.get_by_label('昵称',exact=True).fill('注册验收')
+    password=secrets.token_urlsafe(12)
+    page.get_by_label('密码',exact=True).fill(password)
+    page.get_by_label('确认密码',exact=True).fill(password+'mismatch')
+    page.get_by_role('button',name='注册并登录',exact=True).click()
+    expect(page.get_by_role('alert')).to_contain_text('两次密码不一致')
+    page.get_by_label('确认密码',exact=True).fill(password)
+    page.screenshot(path=str(out/'registration.png'))
+    page.get_by_role('button',name='注册并登录',exact=True).click()
+    expect(page.locator('.room-item').first).to_be_visible()
+    assert page.request.get(args.url+'/api/me').json()['user']['role']=='user'
+    page.screenshot(path=str(out/'registered-user.png'))
+    context.close()
+    context=browser.new_context(viewport={'width':1440,'height':1000})
+    page=context.new_page();page.on('pageerror',lambda e:errors.append(str(e)))
+    page.goto(args.url)
+    page.get_by_label('用户名',exact=True).fill(owner['username'])
+    page.get_by_label('密码',exact=True).fill(owner['password'])
+    page.get_by_role('button',name='登录',exact=True).click()
+    expect(page.locator('.room-item').first).to_be_visible()
+    page.get_by_title('设置',exact=True).click()
+    page.get_by_role('tab',name='工具与 MCP',exact=True).click()
+    config=page.get_by_label('MCP 服务配置',exact=True)
+    expect(config).to_be_visible()
+    assert '__UNCHANGED__' in config.input_value()
+    page.get_by_role('button',name='测试 testnotes',exact=True).click()
+    expect(page.locator('.mcp-checks')).to_contain_text('已连接',timeout=25000)
+    expect(page.locator('.mcp-checks')).to_contain_text('append_note')
+    page.get_by_label('搜索 API Key',exact=True).fill('')
+    page.get_by_role('button',name='保存工具与 MCP 配置',exact=True).click()
+    expect(page.get_by_label('MCP 服务配置',exact=True)).to_be_visible()
+    toggle=page.get_by_label('开放注册',exact=False)
+    toggle.uncheck();page.get_by_role('button',name='保存注册设置',exact=True).click()
+    expect(toggle).not_to_be_checked()
+    page.wait_for_timeout(200)
+    assert not page.request.get(args.url+'/api/registration').json()['enabled']
+    toggle.check();page.get_by_role('button',name='保存注册设置',exact=True).click()
+    page.wait_for_timeout(200)
+    assert page.request.get(args.url+'/api/registration').json()['enabled']
+    page.screenshot(path=str(out/'tools-mcp-settings.png'))
+    assert not errors,errors
+    context.close();browser.close()
+print('V8 browser acceptance passed: registration, auto-login, settings, MCP handshake, registration toggle')

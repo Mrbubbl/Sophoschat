@@ -23,7 +23,7 @@ export async function api(method, path, body, opts = {}) {
     throw new ApiError(0, 'network_error', '网络不可用，请检查连接');
   }
   const ct = res.headers.get('content-type') || '';
-  const data = ct.includes('json') ? await res.json().catch(() => null) : null;
+  const data = ct.includes('json') ? await res.json().catch(() => null) : opts.text ? await res.text() : null;
   if (!res.ok) {
     const err = (data && data.error) || {};
     if (res.status === 401 && !opts.quiet401) emit('unauthenticated');

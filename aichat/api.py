@@ -58,6 +58,13 @@ class LoginIn(BaseModel):
     password: str
 
 
+class RegisterIn(BaseModel):
+    model_config = {"extra":"forbid"}
+    username: str = Field(min_length=2,max_length=32)
+    display_name: str | None = Field(default=None,max_length=40)
+    password: str = Field(min_length=8,max_length=256)
+
+
 class PasswordIn(BaseModel):
     old_password: str
     new_password: str
@@ -165,6 +172,33 @@ async def login(body: LoginIn, request: Request, response: Response):
     return {"user": auth.public_user(user)}
 
 
+@router.get("/api/registration")
+async def registration_info():
+    return {"enabled":db.get_kv('registration_enabled')!='0'}
+
+
+@router.post("/api/register")
+async def register(body:RegisterIn,request:Request,response:Response):
+    if not _origin_ok(request.headers.get('origin'),request.headers.get('host'),request.headers.get('x-forwarded-host')):
+        raise ApiError(403,'bad_origin')
+    if db.get_kv('registration_enabled')=='0':raise ApiError(403,'registration_disabled','当前未开放注册')
+    # Limit the public, CPU-intensive password hashing endpoint per source IP.
+    import time
+    ip=request.client.host if request.client else ''
+    key=('[registration]',ip)  # This prefix cannot be a valid login username.
+    recent=[t for t in auth._failures.get(key,[]) if time.time()-t<300]
+    if len(recent)>=5:raise ApiError(429,'too_many_attempts','注册过于频繁，请 5 分钟后再试')
+    auth._failures[key]=[*recent,time.time()]
+    with db.tx():
+        new_id=auth.create_user(body.username,body.display_name,body.password,'user')
+        chat.bootstrap_user(new_id)
+        token=auth.create_session(new_id,request.headers.get('user-agent',''),ip)
+        db.audit(f'user:{new_id}','user.register',None)
+    c=config.get()
+    response.set_cookie(COOKIE,token,httponly=True,samesite='lax',secure=c.cookie_secure,max_age=c.session_days*86400,path='/')
+    return {'user':auth.public_user(auth.get_user(new_id))}
+
+
 @router.post("/api/logout")
 async def logout(request: Request, response: Response):
     auth.delete_session(request.cookies.get(COOKIE))
@@ -174,7 +208,7 @@ async def logout(request: Request, response: Response):
 
 @router.get("/api/me")
 async def me(u=Depends(current_user)):
-    return {"user": auth.public_user(u), "agent": tasks.agent_status()}
+    return {"user": auth.public_user(u), "agent": tasks.agent_status(uid(u))}
 
 
 @router.post("/api/me/password")
@@ -622,7 +656,7 @@ async def export_room(room_id: int, format: str = "md", from_time: str | None = 
 # ---------------------------------------------------------------- Agent 接入（Owner）
 @router.get("/api/agent/status")
 async def agent_status(u=Depends(current_user)):
-    return {"status": tasks.agent_status()}
+    return {"status": tasks.agent_status(uid(u))}
 
 
 @router.get("/api/agent/credentials")
@@ -645,17 +679,8 @@ async def agent_revoke(cred_id: int, u=Depends(owner_user)):
 
 @router.post("/api/agent/selfcheck")
 async def agent_selfcheck(u=Depends(owner_user)):
-    """接入自检：在 Owner 的 Agent 私聊里发一条测试消息，触发一次完整的“领取任务→回复”闭环。"""
-    st = tasks.agent_status()
-    checks = [
-        {"name": "已创建凭证", "ok": st["state"] != "unconfigured"},
-        {"name": "Bridge 心跳在线", "ok": st["state"] == "online"},
-    ]
-    if not all(c["ok"] for c in checks):
-        return {"ok": False, "checks": checks}
-    rid = chat.ensure_agent_dm(uid(u))
-    msg, _ = chat.send_message(rid, uid(u), "【接入自检】请回复一句话确认你能收到这条消息。", f"selfcheck-{db.now()}")
-    return {"ok": True, "checks": checks, "room_id": rid, "message_id": msg["id"]}
+    from .runtime_api import start_selfcheck
+    return start_selfcheck(uid(u))
 
 
 @router.get("/agent-guide.md")
@@ -684,7 +709,7 @@ async def ws(websocket: WebSocket):
     user_id = user["id"]
     await hub.connect(user_id, websocket, security.token_hash(websocket.cookies.get(COOKIE)))
     try:
-        await websocket.send_json({"type": "hello", "user": auth.public_user(user), "agent": tasks.agent_status()})
+        await websocket.send_json({"type": "hello", "user": auth.public_user(user), "agent": tasks.agent_status(uid(user))})
         while True:
             data = await websocket.receive_json()
             if not isinstance(data, dict):

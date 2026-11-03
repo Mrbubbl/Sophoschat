@@ -77,7 +77,7 @@ if [ -z "$TEST" ]; then
   say "安装系统依赖"
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
-  apt-get install -y -qq python3 python3-venv python3-pip unzip curl ca-certificates
+  apt-get install -y -qq python3 python3-venv python3-pip nodejs npm unzip curl ca-certificates
   if [ "$PROXY" = "own-nginx" ] && ! command -v nginx >/dev/null; then die "own-nginx 模式需要服务器上已有 nginx（apt install nginx 会顺带启动一个占用 80 端口的默认站点，所以脚本不替你装）"; fi
   id aichat >/dev/null 2>&1 || useradd --system --home-dir "$DATA_DIR" --shell /usr/sbin/nologin aichat
 fi
@@ -130,26 +130,9 @@ else
   fi
 fi
 
-# ------------------------------------------------------------------ Agent Bridge 配置（凭证自动生成并写入，不需要你复制）
-if [ ! -f "$ETC_DIR/bridge.env" ]; then
-  TOKEN="$(as_app "${CLI[@]}" agent token --label "server-bridge" | grep -o 'aca_[^ ]*' | head -1)"
-  [ -n "$TOKEN" ] || die "生成 Agent 凭证失败"
-  umask 077
-  cat > "$ETC_DIR/bridge.env" <<ENV
-AICHAT_URL=http://127.0.0.1:$PORT
-AICHAT_AGENT_TOKEN=$TOKEN
-# 当前是演示用的 mock（规则实现，不是真正的模型）。接入真实模型：改下面三行，然后 systemctl restart aichat-bridge
-AICHAT_ADAPTER=mock
-#AICHAT_ADAPTER=openai
-#AICHAT_LLM_BASE_URL=https://api.openai.com/v1
-#AICHAT_LLM_API_KEY=
-#AICHAT_LLM_MODEL=
-#AICHAT_ADAPTER=anthropic
-#ANTHROPIC_API_KEY=
-ENV
-  umask 022
-fi
-if [ -z "$TEST" ]; then chown root:aichat "$ETC_DIR/bridge.env" "$ETC_DIR/server.env"; chmod 640 "$ETC_DIR/bridge.env" "$ETC_DIR/server.env"; fi
+# Model settings are encrypted in the application database and configured by
+# Owner in the web UI. No demo adapter or personal terminal is started here.
+if [ -z "$TEST" ]; then chown root:aichat "$ETC_DIR/server.env"; chmod 640 "$ETC_DIR/server.env"; fi
 
 # ------------------------------------------------------------------ systemd
 say "写入服务"
@@ -168,35 +151,9 @@ Environment=PYTHONPATH=$APP_DIR/app
 ExecStart=$APP_DIR/venv/bin/python -m aichat.cli serve --host $HOST --port $PORT
 Restart=on-failure
 RestartSec=3
-NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=$DATA_DIR
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-cat > "$UNIT_DIR/aichat-bridge.service" <<UNIT
-[Unit]
-Description=SophosChat Agent Bridge
-After=aichat.service
-Wants=aichat.service
-
-[Service]
-User=aichat
-Group=aichat
-WorkingDirectory=$APP_DIR/app
-EnvironmentFile=$ETC_DIR/bridge.env
-Environment=PYTHONPATH=$APP_DIR/app
-ExecStart=$APP_DIR/venv/bin/python -m aichat_bridge --guide-path $DATA_DIR/AGENT_GUIDE.md
-Restart=always
-RestartSec=5
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=$DATA_DIR
+# Agent tools intentionally use the service account's full OS permissions.
+# Do not add a read-only filesystem or hidden HOME for this execution mode.
 
 [Install]
 WantedBy=multi-user.target
@@ -302,11 +259,11 @@ CADDY
 
   say "启动服务"
   systemctl daemon-reload
-  systemctl enable aichat aichat-bridge >/dev/null 2>&1
+  systemctl enable aichat >/dev/null 2>&1
   systemctl restart aichat
   for _ in $(seq 1 30); do curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1 && break; sleep 1; done
   curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null || { journalctl -u aichat -n 30 --no-pager; die "服务没有正常启动，日志见上"; }
-  systemctl restart aichat-bridge
+  systemctl disable --now aichat-bridge 2>/dev/null || true
   if [ "$PROXY" = "own-nginx" ]; then systemctl enable aichat-proxy >/dev/null 2>&1; systemctl restart aichat-proxy; sleep 1; systemctl is-active --quiet aichat-proxy || { journalctl -u aichat-proxy -n 20 --no-pager; die "HTTPS 入口没有启动，日志见上"; }; fi
 fi
 
@@ -322,12 +279,11 @@ cat <<DONE
 --------------------------------------------------------------------
  下一步：
   1) 浏览器打开上面的地址登录；
-  2) 要接入真实模型：编辑 $ETC_DIR/bridge.env（填 API Key 和模型名，取消对应注释），
-     然后执行：systemctl restart aichat-bridge
+  2) 设置 → 服务端 Agent：保存 Claude 模型与 API Key，启用后运行真实 SDK / 文件自检
   3) 在网页「设置 → Agent 接入」点“运行接入自检”
  常用命令：
-  查看日志   journalctl -u aichat -f      journalctl -u aichat-bridge -f
-  重启       systemctl restart aichat aichat-bridge
+  查看日志   journalctl -u aichat -f
+  重启       systemctl restart aichat
   升级       上传新 zip 后再运行：bash install.sh /root/新的aichat-app.zip
   手动备份   sudo -u aichat env PYTHONPATH=$APP_DIR/app AICHAT_DATA_DIR=$DATA_DIR $APP_DIR/venv/bin/python -m aichat.cli backup /var/backups/aichat/manual.tar.gz
 ====================================================================

@@ -101,7 +101,7 @@ export function renderMe() {
 export function renderPill() {
   const st = S.agent;
   if (!st) return;
-  const text = { unconfigured: 'Agent 未配置', offline: 'Agent 离线', online: 'Agent 在线' }[st.state];
+  const text = { unconfigured: 'Agent 未配置', offline: 'Agent 离线', online: 'Agent 在线', paused: 'Agent 已暂停', degraded: 'Agent 调用异常' }[st.state];
   els.pill.replaceChildren(h('span', { class: 'dot ' + st.state }), text);
   els.pill.title = st.state === 'online' ? `Agent 在线 · 待整理 ${st.backlog_events} 条` : 'Agent 状态与接入';
 }

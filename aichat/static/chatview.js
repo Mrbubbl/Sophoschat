@@ -5,6 +5,7 @@ import { buildEmojiPanel, QUICK } from './emoji.js';
 import { voiceSupported, startRecording, voicePlayer, recordingBar, MAX_MS } from './voice.js';
 import { wsSend } from './ws.js';
 import { canCall, startCall } from './call.js';
+import { artifactCard } from './artifacts.js';
 import { showTimes, $, h, icon, iconBtn, avatar, renderMarkdown, fmtTime, fmtFull, fmtDay, dayKey, fmtSize, toast, ask, copyText, debounce } from './util.js';
 
 const els = {};
@@ -101,6 +102,7 @@ export function initChat(container) {
   document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && markReadSoon());
   window.addEventListener('focus', markReadSoon);
 
+  on('reply-artifact', m => { if (m.room_id === S.cur) setReply(m); });
   on('msg:new', onNewMessage);
   on('msg:update', onUpdateMessage);
   on('typing', onTyping);
@@ -340,6 +342,7 @@ function messageRow(m, prev) {
     }
     if (m.body) bubble.append(h('div', { class: 'body' }, renderMarkdown(m.body, { members: r.members })));
     if (m.attachment) bubble.append(attachmentEl(m.attachment));
+    if (m.artifact) bubble.append(artifactCard(m.artifact));
   }
   const BLOCK = new Set(['DIV', 'P', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'H1', 'H2', 'H3', 'H4']);
   const tailBlock = (el) => {
@@ -413,11 +416,12 @@ function taskChip(m) {
   const r = room(S.cur);
   if (!t || m.deleted || !r || !r.agent_in_room) return null;
   const st = S.agent;
-  if (t.status === 'queued') {
-    if (st && st.state !== 'online') return h('div', { class: 'chip warn', dataset: { chip: m.id } }, `Agent ${agentStateText(st)}，消息已保存，上线后会处理`);
-    return h('div', { class: 'chip', dataset: { chip: m.id } }, h('span', { class: 'spin' }), '等待 Agent…');
+  if (t.status === 'queued' || t.status === 'leased') {
+    const label = t.status === 'queued' ? (S.agent && S.agent.state !== 'online' ? `Agent ${agentStateText(S.agent)}，请求已保存` : '已排队，等待执行资源') : (t.progress || 'Agent 处理中…');
+    return h('div', { class: 'chip', dataset: { chip: m.id } }, h('span', { class: 'spin' }), label,
+      S.me.role === 'owner' || t.initiator_id === S.me.id ? h('button', { class: 'link danger', type: 'button', onclick: async () => { try { onTask((await post(`/api/tasks/${t.id}/cancel`)).task); } catch(e) { toast(e.message, 'err'); } } }, '停止') : null);
   }
-  if (t.status === 'leased') return h('div', { class: 'chip', dataset: { chip: m.id } }, h('span', { class: 'spin' }), 'Agent 处理中…');
+  if (t.status === 'cancelled') return h('div', { class: 'chip' }, '任务已停止；已交付文件仍可使用');
   if (t.status === 'expired' || t.status === 'failed') {
     return h('div', { class: 'chip warn', dataset: { chip: m.id } }, t.status === 'expired' ? '未及时处理' : '处理失败', ' ', h('button', { class: 'link', type: 'button', onclick: () => retryTask(t) }, '重试'));
   }

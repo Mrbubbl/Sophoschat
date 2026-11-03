@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -53,31 +55,32 @@ async def heartbeat(body: HeartbeatIn, found=Depends(agent_cred)):
 
 
 @router.post("/api/agent/lease")
-async def lease(wait: int = 0, owner: str = "", found=Depends(agent_cred)):
+async def lease(wait: int = 0, owner: str = "", engine: str = "legacy", profiles: str = "", found=Depends(agent_cred)):
     """领取下一个任务；wait>0 时长轮询（最多 30 秒），有新任务立即返回。"""
     _, cred = found
     wait = max(0, min(int(wait), 30))
-    r = tasks.lease_next(cred, owner)
+    selected = tuple(p for p in profiles.split(",") if p)
+    r = tasks.lease_next(cred, owner, engine=engine, profiles=selected)
     if r or not wait:
         return {"lease": r}
     if await hub.wait_for_work(wait):
-        r = tasks.lease_next(cred, owner)
+        r = tasks.lease_next(cred, owner, engine=engine, profiles=selected)
     return {"lease": r}
 
 
 @router.post("/api/agent/tasks/{task_id}/renew")
-async def renew(task_id: int, found=Depends(agent_cred)):
-    return tasks.renew(task_id, found[1])
+async def renew(task_id: int, request: Request, found=Depends(agent_cred)):
+    return tasks.renew(task_id, found[1], request.headers.get("x-task-token", ""))
 
 
 @router.post("/api/agent/tasks/{task_id}/complete")
-async def complete(task_id: int, body: CompleteIn, found=Depends(agent_cred)):
-    return {"task": tasks.complete(task_id, found[1], body.result_message_id)}
+async def complete(task_id: int, body: CompleteIn, request: Request, found=Depends(agent_cred)):
+    return {"task": tasks.complete(task_id, found[1], body.result_message_id, request.headers.get("x-task-token", ""))}
 
 
 @router.post("/api/agent/tasks/{task_id}/fail")
-async def fail(task_id: int, body: FailIn, found=Depends(agent_cred)):
-    return {"task": tasks.fail(task_id, found[1], body.error, body.retry)}
+async def fail(task_id: int, body: FailIn, request: Request, found=Depends(agent_cred)):
+    return {"task": tasks.fail(task_id, found[1], body.error, body.retry, request.headers.get("x-task-token", ""))}
 
 
 # ---------------------------------------------------------------- 任务令牌（工具层）
@@ -148,6 +151,8 @@ async def capabilities(ctx: Ctx = Depends(any_ctx)):
 
 @router.get("/api/tools/whoami")
 async def whoami(ctx: Ctx = Depends(any_ctx)):
+    from . import runtime
+    runtime.receipt(ctx.task, "messages.read")
     room = db.one("SELECT * FROM rooms WHERE id=?", (ctx.room_id,))
     t = db.one("SELECT * FROM agent_tasks WHERE id=?", (ctx.task["id"],))
     params = db.jd(t["params"], {})
@@ -221,7 +226,8 @@ def _tool_attachment(att_id: int, ctx: Ctx):
     if not m or m["deleted_at"] or (hist and m["seq"] <= hist["history_from_seq"]):
         raise ApiError(404, "attachment_not_found")
     if a["mime"] not in chat.IMAGE_MIMES and a["mime"] not in chat.AUDIO_MIMES:
-        raise ApiError(415, "unsupported_type", "Agent 只能读取图片和语音附件")
+        if not (a["mime"].startswith("text/") or Path(a["filename"]).suffix.lower() in {".md", ".html", ".txt", ".json", ".csv", ".py", ".js", ".css"}) or a["size"] > 1024 * 1024:
+            raise ApiError(415, "unsupported_type", "支持图片、语音及不超过 1 MB 的文本资料")
     if a["size"] > MAX_TOOL_ATT:
         raise ApiError(413, "too_large")
     p = _cfg.get().data_dir / a["path"]

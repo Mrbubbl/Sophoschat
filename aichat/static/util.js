@@ -7,6 +7,7 @@ export function h(tag, attrs, ...children) {
   for (const [k, v] of Object.entries(attrs || {})) {
     if (v == null || v === false) continue;
     if (k === 'class') el.className = v;
+    else if (k === 'value' && tag === 'textarea') el.value = v;
     else if (k === 'dataset') Object.assign(el.dataset, v);
     else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
     else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
@@ -196,7 +197,22 @@ export function renderMarkdown(text, ctx = {}) {
         buf = [];
       }
     };
-    for (const line of lines) {
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      const line = lines[lineIndex];
+      if (line.includes('|') && /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[lineIndex + 1] || '')) {
+        flush();
+        list = null;
+        const cells = l => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(x => x.trim());
+        const headers = cells(line).slice(0,20);
+        const tbody = h('tbody');
+        lineIndex += 1;
+        while (lineIndex + 1 < lines.length && lines[lineIndex + 1].includes('|') && lines[lineIndex + 1].trim()) {
+          const row = cells(lines[++lineIndex]);
+          tbody.append(h('tr', null, headers.map((_, i) => h('td', null, inline(row[i] || '', ctx)))));
+        }
+        root.append(h('div', { class: 'md-table-scroll' }, h('table', null, h('thead', null, h('tr', null, headers.map(t => h('th', null, inline(t, ctx))))), tbody)));
+        continue;
+      }
       const li = line.match(/^\s*(?:[-*•]|\d+[.)])\s+(.*)$/);
       const hd = line.match(/^#{1,4}\s+(.*)$/);
       const bq = line.match(/^>\s?(.*)$/);

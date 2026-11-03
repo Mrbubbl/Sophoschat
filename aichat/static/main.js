@@ -114,6 +114,15 @@ function showLogin(msg) {
   const pass = h('input', { type: 'password', name: 'password', autocomplete: 'current-password', placeholder: '密码', required: true, 'aria-label': '密码' });
   const err = h('div', { class: 'login-err', role: 'alert' }, typeof msg === 'string' ? msg : '');
   const btn = h('button', { class: 'btn primary wide', type: 'submit' }, '登录');
+  let registering = false;
+  const display = h('input', { type:'text', name:'display_name', placeholder:'昵称（可选）', 'aria-label':'昵称', maxlength:40, hidden:true });
+  const confirm = h('input', { type:'password', name:'confirm_password', autocomplete:'new-password', placeholder:'再次输入密码', 'aria-label':'确认密码', hidden:true, oninput:()=>{err.textContent='';} });
+  const mode = h('button', { type:'button', class:'btn wide', hidden:true, onclick:()=>{
+    registering=!registering;display.hidden=confirm.hidden=!registering;confirm.required=registering;
+    pass.autocomplete=registering?'new-password':'current-password';pass.minLength=registering?8:1;
+    btn.textContent=registering?'注册并登录':'登录';mode.textContent=registering?'已有账号，返回登录':'没有账号？注册';err.textContent='';
+  }},'没有账号？注册');
+  get('/api/registration').then(r=>{mode.hidden=!r.enabled;}).catch(()=>{});
   const form = h(
     'form',
     {
@@ -123,7 +132,8 @@ function showLogin(msg) {
         btn.disabled = true;
         err.textContent = '';
         try {
-          await post('/api/login', { username: user.value.trim(), password: pass.value }, { quiet401: true });
+          if(registering && pass.value!==confirm.value) throw new Error('两次密码不一致');
+          await post(registering?'/api/register':'/api/login', { username: user.value.trim(), password: pass.value, ...(registering?{display_name:display.value.trim()}: {}) }, { quiet401: true });
           await start();
         } catch (ex) {
           err.textContent = ex.message;
@@ -136,9 +146,12 @@ function showLogin(msg) {
     h('h1', null, 'SophosChat'),
     h('p', { class: 'muted' }, '自部署的私人聊天，Agent 默认不打扰，只在需要时出现。'),
     user,
+    display,
     pass,
+    confirm,
     err,
-    btn
+    btn,
+    mode
   );
   root.replaceChildren(h('div', { class: 'login' }, form));
   user.focus();

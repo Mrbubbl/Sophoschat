@@ -26,7 +26,7 @@ def free_port():
 class Live:
     def __init__(self, tmp_path):
         hub.reset()
-        self.app = create_app(tmp_path / "data", scheduler=True, scheduler_tick=1, consolidate_quiet=1, chat_task_ttl=60)
+        self.app = create_app(tmp_path / "data", scheduler=True, scheduler_tick=1, consolidate_quiet=1, chat_task_ttl=60, allow_legacy_agent=True, start_agent_service=False)
         self.alice = auth.create_user("alice", "Alice", "password-alice", "owner")
         self.bob = auth.create_user("bob", "Bob", "password-bob", "user")
         for u in (self.alice, self.bob):
@@ -343,12 +343,12 @@ def test_tool_attachment_is_scoped_to_task_room(live):
     br.heartbeat()
     lease = br.http.call("POST", "/api/agent/lease", br.cred)["lease"]
     tok = lease["task_token"]
-    # 别的房间里的图片：读不到；非图片非语音：不给
+    # 别的房间里的图片读不到；本房间文本资料可由作用域工具读取。
     r = httpx.get(f"{live.base}/api/tools/attachments/{att['id']}", headers={"Authorization": f"Bearer {tok}"})
     assert r.status_code == 404
     r = httpx.get(f"{live.base}/api/tools/attachments/{txt['id']}", headers={"Authorization": f"Bearer {tok}"})
-    assert r.status_code == 415
-    br.http.call("POST", f"/api/agent/tasks/{lease['task']['id']}/fail", br.cred, {"error": "x", "retry": False})
+    assert r.status_code == 200 and r.text == 'hello'
+    br.http.call("POST", f"/api/agent/tasks/{lease['task']['id']}/fail", br.cred, {"error": "x", "retry": False}, headers={"X-Task-Token": lease["task_token"]})
 
 
 class _SttAdapter(CallbackAdapter):

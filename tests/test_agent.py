@@ -220,12 +220,13 @@ def test_agent_status_states(env):
     assert env.a.get("/api/agent/status").json()["status"]["state"] == "unconfigured"
 
 
-def test_selfcheck_triggers_full_loop(env):
+def test_heartbeat_alone_cannot_pass_selfcheck(env):
     r = env.a.post("/api/agent/selfcheck").json()
     assert r["ok"] is False  # Bridge 还没上线
     env.anon.post("/api/agent/heartbeat", headers=env.cred_h, json={})
     r = env.a.post("/api/agent/selfcheck").json()
-    assert r["ok"] is True and n_tasks("chat", "queued") == 1
+    assert r["ok"] is False and r["state"] == "blocked"
+    assert n_tasks("chat", "queued") == 0
 
 
 def test_guide_and_capabilities(env):

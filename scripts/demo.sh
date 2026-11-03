@@ -3,6 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PYTHONPATH="$PWD"
+export AICHAT_ALLOW_LEGACY_AGENT=1 AICHAT_START_AGENT_SERVICE=0
 DATA="${AICHAT_DATA_DIR:-./data-demo}"
 PORT="${PORT:-8000}"
 CLI="python3 -m aichat.cli --data-dir $DATA"
