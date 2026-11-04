@@ -39,7 +39,7 @@ def cmd_init(args):
     print("下一步：")
     print("  1) aichat user add <用户名>        # 添加第二位使用者")
     print("  2) aichat serve                    # 启动服务，浏览器打开 http://127.0.0.1:8000")
-    print("  3) 登录后在 设置 → Agent 接入 中创建凭证并启动 Bridge")
+    print("  3) 登录后在 设置 → Agent 接入 中配置模型与 API Key，启用并运行自检")
 
 
 def cmd_user(args):
@@ -82,7 +82,7 @@ def cmd_serve(args):
 
     if args.data_dir:
         os.environ["AICHAT_DATA_DIR"] = args.data_dir
-    app = create_app(args.data_dir)
+    app = create_app(args.data_dir, agent_base_url=f"http://127.0.0.1:{args.port}")
     print(f"数据目录：{config.get().data_dir}")
     print("提示：本服务使用进程内实时推送，请只运行一个 worker；公网访问请放在 HTTPS 反向代理之后，并设置 AICHAT_COOKIE_SECURE=1")
     uvicorn.run(app, host=args.host, port=args.port, log_level="info", proxy_headers=True, forwarded_allow_ips="127.0.0.1")

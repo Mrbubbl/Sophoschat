@@ -7,16 +7,37 @@ import { initChat, openRoom } from './chatview.js';
 import { initPanel, refresh as refreshPanel } from './panel.js';
 import { openSettings } from './settings.js';
 import { initCalls } from './call.js';
+import { applyPrefs, savePrefs } from './appearance.js';
+import { initNav, syncView } from './nav.js';
+import { enter } from './motion.js';
+import { setVoiceRate, setAutoNext } from './voice.js';
 
 const root = $('#root');
 setShowTimes(showTimes()); // 套用“是否显示每条消息时间”的偏好
 let built = false;
 let app;
 
+// 返回键：手机上“聊天 / 回顾面板”各算一层；按返回先退一层，不会直接回桌面
+initNav({
+  onBackView: () => {
+    S.view = S.view === 'panel' ? 'chat' : 'list';
+    emit('view');
+  },
+});
+const VIEW_DEPTH = { list: 0, chat: 1, panel: 2 };
+
+let prevView = 'list';
 function applyLayout() {
   if (!app) return;
+  const narrow = window.innerWidth < 900;
+  const changed = narrow && S.view !== prevView;
+  const dir = (VIEW_DEPTH[S.view] || 0) >= (VIEW_DEPTH[prevView] || 0) ? 'forward' : 'back';
   app.dataset.view = S.view;
   app.dataset.panel = S.panelOpen ? 'open' : 'closed';
+  syncView(narrow ? VIEW_DEPTH[S.view] || 0 : 0);
+  // 手机上切换页面：新页面从侧边轻轻滑入并渐显（Material 的"共享轴"，位移很小，不遮挡内容）
+  if (changed) enter(app.querySelector(S.view === 'list' ? '.left' : S.view === 'panel' ? '.panel' : '.center'), dir);
+  prevView = S.view;
 }
 
 function buildShell() {
@@ -114,6 +135,33 @@ function showLogin(msg) {
   const pass = h('input', { type: 'password', name: 'password', autocomplete: 'current-password', placeholder: '密码', required: true, 'aria-label': '密码' });
   const err = h('div', { class: 'login-err', role: 'alert' }, typeof msg === 'string' ? msg : '');
   const btn = h('button', { class: 'btn primary wide', type: 'submit' }, '登录');
+  let registering = false;
+  const display = h('input', { type:'text', name:'display_name', placeholder:'昵称（可选）', 'aria-label':'昵称', maxlength:40, hidden:true });
+  const confirm = h('input', { type:'password', name:'confirm_password', autocomplete:'new-password', placeholder:'再次输入密码', 'aria-label':'确认密码', hidden:true, oninput:()=>{err.textContent='';} });
+  const mode = h('button', { type:'button', class:'btn wide', hidden:true, onclick:()=>{
+    registering=!registering;display.hidden=confirm.hidden=!registering;confirm.required=registering;
+    pass.autocomplete=registering?'new-password':'current-password';pass.minLength=registering?8:1;
+    btn.textContent=registering?'注册并登录':'登录';mode.textContent=registering?'已有账号，返回登录':'没有账号？注册';err.textContent='';
+  }},'没有账号？注册');
+  // 邀请链接：/?invite=xxx —— 显示邀请人并直接进入注册
+  const invite = new URLSearchParams(location.search).get('invite');
+  const inviteNote = h('p', { class: 'invite-note', hidden: true });
+  if (invite) {
+    get('/api/invite-info' + '?token=' + encodeURIComponent(invite)).then((r) => {
+      if (r.valid) {
+        inviteNote.textContent = `${r.inviter} 邀请你加入 SophosChat` + (r.room_title ? `，并进入「${r.room_title}」` : '') + '。设置用户名和密码即可开始。';
+        inviteNote.hidden = false;
+        if (!registering) mode.click();
+        mode.hidden = false;
+      } else {
+        inviteNote.textContent = { expired: '这个邀请已过期', used_up: '这个邀请已被用完', revoked: '这个邀请已被撤销' }[r.reason] || '邀请链接无效';
+        inviteNote.textContent += '，请向邀请人重新索取。已有账号可以直接登录。';
+        inviteNote.classList.add('bad');
+        inviteNote.hidden = false;
+      }
+    }).catch(() => {});
+  }
+  get('/api/registration').then(r=>{if(!invite)mode.hidden=!r.enabled;}).catch(()=>{});
   const form = h(
     'form',
     {
@@ -123,7 +171,9 @@ function showLogin(msg) {
         btn.disabled = true;
         err.textContent = '';
         try {
-          await post('/api/login', { username: user.value.trim(), password: pass.value }, { quiet401: true });
+          if(registering && pass.value!==confirm.value) throw new Error('两次密码不一致');
+          await post(registering?'/api/register':'/api/login', { username: user.value.trim(), password: pass.value, ...(registering?{display_name:display.value.trim(), ...(invite?{invite}:{})}: {}) }, { quiet401: true });
+          if (invite) history.replaceState(null, '', '/');
           await start();
         } catch (ex) {
           err.textContent = ex.message;
@@ -134,11 +184,15 @@ function showLogin(msg) {
     },
     h('div', { class: 'login-logo' }, h('img', { class: 'logo-img', src: '/static/icon.svg', alt: 'SophosChat' })),
     h('h1', null, 'SophosChat'),
-    h('p', { class: 'muted' }, '自部署的私人聊天，Agent 默认不打扰，只在需要时出现。'),
+    h('p', { class: 'muted' }, '私人聊天，AI 在需要时才出现。'),
+    inviteNote,
     user,
+    display,
     pass,
+    confirm,
     err,
-    btn
+    btn,
+    mode
   );
   root.replaceChildren(h('div', { class: 'login' }, form));
   user.focus();
@@ -155,6 +209,11 @@ async function start() {
   }
   S.me = me.user;
   S.agent = me.agent;
+  if (me.prefs) {
+    applyPrefs(me.prefs);
+    setVoiceRate(me.prefs.voice_rate, (r) => savePrefs({ voice_rate: r }));
+    setAutoNext(me.prefs.autoplay);
+  }
   buildShell();
   renderMe();
   await Promise.all([loadUsers(), loadRooms()]);

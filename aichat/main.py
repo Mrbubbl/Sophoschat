@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import json
+import os
+import sys
 import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -11,7 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import agent_api, api, auth, chat, config, db, hub, tasks
+from . import agent_api, api, artifact_api, auth, chat, config, db, hub, runtime_api, tasks
 from .errors import ApiError
 
 log = logging.getLogger("aichat")
@@ -50,9 +53,33 @@ def create_app(data_dir=None, scheduler: bool = True, **overrides) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         task = asyncio.create_task(scheduler_loop()) if scheduler else None
+        async def supervise_agent():
+            from . import runtime
+            from aichat_agent.service import terminate_tree
+            while True:
+                service = None
+                try:
+                    token = runtime.service_credential()
+                    service = await asyncio.create_subprocess_exec(sys.executable, "-m", "aichat_agent.service", "--bootstrap-stdin", cwd=Path(__file__).resolve().parent.parent,
+                        stdin=asyncio.subprocess.PIPE, start_new_session=True,
+                        env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "PYTHONPATH": str(Path(__file__).resolve().parent.parent), "PYTHONUNBUFFERED": "1", **({"AICHAT_CHROMIUM_PATH": os.environ["AICHAT_CHROMIUM_PATH"]} if os.environ.get("AICHAT_CHROMIUM_PATH") else {})})
+                    service.stdin.write((json.dumps({"url": c.agent_base_url, "credential": token, "state_dir": str(c.data_dir / "agent_state"), "controller_pid": os.getpid()}) + "\n").encode())
+                    await service.stdin.drain()
+                    service.stdin.close()
+                    await service.wait()
+                except (OSError, BrokenPipeError):
+                    log.warning("SDK controller unavailable; restarting")
+                finally:
+                    await terminate_tree(service)
+                await asyncio.sleep(2)
+        service_task = asyncio.create_task(supervise_agent()) if scheduler and c.start_agent_service else None
         try:
             yield
         finally:
+            if service_task:
+                service_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await service_task
             if task:
                 task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -78,6 +105,8 @@ def create_app(data_dir=None, scheduler: bool = True, **overrides) -> FastAPI:
 
     app.include_router(api.router)
     app.include_router(agent_api.router)
+    app.include_router(artifact_api.router)
+    app.include_router(runtime_api.router)
 
     nocache = {"Cache-Control": "no-cache"}
 

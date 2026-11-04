@@ -43,7 +43,7 @@ def agent_member_id(room_id: int) -> int | None:
 
 def require_member(room_id: int, user_id: int):
     r = db.one(
-        "SELECT r.*, m.last_read_seq, m.archived, m.muted, m.history_from_seq FROM rooms r "
+        "SELECT r.*, m.last_read_seq, m.archived, m.muted, m.history_from_seq, m.pinned, m.marked_unread, m.bg FROM rooms r "
         "JOIN room_members m ON m.room_id=r.id WHERE r.id=? AND m.user_id=? AND m.left_at IS NULL",
         (room_id, user_id),
     )
@@ -104,6 +104,9 @@ def ser_room(r, user_id: int) -> dict:
         "unread": unread,
         "archived": bool(r["archived"]),
         "muted": bool(r["muted"]),
+        "pinned": bool(r["pinned"]) if "pinned" in r.keys() else False,
+        "marked_unread": bool(r["marked_unread"]) if "marked_unread" in r.keys() else False,
+        "bg": (r["bg"] if "bg" in r.keys() else None),
         "consolidation_enabled": bool(r["consolidation_enabled"]),
         "retention_days": r["retention_days"],
         "last_message": _preview(last),
@@ -123,6 +126,7 @@ def ser_attachment(a) -> dict | None:
         "is_voice": a["mime"] in AUDIO_MIMES and a["duration_ms"] is not None,
         "duration_ms": a["duration_ms"],
         "transcript": a["transcript"],
+        "waveform": [int(x) for x in a["waveform"].split(",")] if "waveform" in a.keys() and a["waveform"] else None,
         "url": f"/api/attachments/{a['id']}",
     }
 
@@ -150,6 +154,13 @@ def ser_messages(rows, viewer_id: int | None = None) -> list[dict]:
     out = []
     for r in rows:
         deleted = r["deleted_at"] is not None
+        artifact = None
+        if r["artifact_version_id"] and not deleted:
+            from . import artifacts
+            try:
+                artifact = artifacts.serialize(artifacts.version_row(r["artifact_version_id"]))
+            except ApiError:
+                pass
         out.append(
             {
                 "id": r["id"],
@@ -162,6 +173,7 @@ def ser_messages(rows, viewer_id: int | None = None) -> list[dict]:
                 "reply_to": r["reply_to"],
                 "reply_preview": _preview(replies.get(r["reply_to"])) if r["reply_to"] else None,
                 "attachment": None if deleted else ser_attachment(atts.get(r["attachment_id"])),
+                "artifact": artifact,
                 "mentions": db.jd(r["mentions"], []),
                 "version": r["version"],
                 "created_at": r["created_at"],
@@ -255,7 +267,7 @@ def _publish_room_update(room_id: int) -> None:
     def push():
         for uid in human_member_ids(room_id):
             r = db.one(
-                "SELECT r.*, m.last_read_seq, m.archived, m.muted, m.history_from_seq FROM rooms r "
+                "SELECT r.*, m.last_read_seq, m.archived, m.muted, m.history_from_seq, m.pinned, m.marked_unread, m.bg FROM rooms r "
                 "JOIN room_members m ON m.room_id=r.id WHERE r.id=? AND m.user_id=?",
                 (room_id, uid),
             )
@@ -267,7 +279,7 @@ def _publish_room_update(room_id: int) -> None:
 
 def list_rooms(user_id: int) -> list[dict]:
     rows = db.all(
-        "SELECT r.*, m.last_read_seq, m.archived, m.muted, m.history_from_seq FROM rooms r "
+        "SELECT r.*, m.last_read_seq, m.archived, m.muted, m.history_from_seq, m.pinned, m.marked_unread, m.bg FROM rooms r "
         "JOIN room_members m ON m.room_id=r.id WHERE m.user_id=? AND m.left_at IS NULL",
         (user_id,),
     )
@@ -307,9 +319,31 @@ def update_room(room_id: int, user_id: int, changes: dict) -> dict:
 
 def set_member_flag(room_id: int, user_id: int, flag: str, value: bool) -> dict:
     require_member(room_id, user_id)
-    if flag not in ("archived", "muted"):
+    if flag not in ("archived", "muted", "pinned", "marked_unread"):
         raise ApiError(400, "invalid_flag")
     db.run(f"UPDATE room_members SET {flag}=? WHERE room_id=? AND user_id=?", (1 if value else 0, room_id, user_id))
+    r = require_member(room_id, user_id)
+    payload = {"type": "room.updated", "room": ser_room(r, user_id)}
+    hub.publish([user_id], payload)
+    return payload["room"]
+
+
+BG_PRESETS = {"dots", "grid", "waves", "paper", "aurora", "dusk", "mint", "night", "image"}
+BG_COLOR_RE = __import__("re").compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def valid_bg(value: str | None) -> str | None:
+    """聊天背景：None=跟随默认；预设名；或 #rrggbb 纯色；image=使用自己上传的背景图。"""
+    if value in (None, ""):
+        return None
+    if value in BG_PRESETS or BG_COLOR_RE.match(value):
+        return value
+    raise ApiError(400, "invalid_background", "不支持的背景")
+
+
+def set_room_bg(room_id: int, user_id: int, value: str | None) -> dict:
+    require_member(room_id, user_id)
+    db.run("UPDATE room_members SET bg=? WHERE room_id=? AND user_id=?", (valid_bg(value), room_id, user_id))
     r = require_member(room_id, user_id)
     payload = {"type": "room.updated", "room": ser_room(r, user_id)}
     hub.publish([user_id], payload)
@@ -376,13 +410,17 @@ def remove_member(room_id: int, actor_id: int, user_id: int) -> None:
 
 # ---------------------------------------------------------------- 消息
 def parse_mentions(room_id: int, body: str) -> list[int]:
-    names = {n.lower() for n in MENTION_RE.findall(body or "")}
+    # Quoted material is data. Only mentions in the user's own prose trigger.
+    prose = re.sub(r"```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)", "", body or "")
+    prose = re.sub(r"`[^`\n]*`", "", prose)
+    prose = "\n".join(line for line in prose.splitlines() if not line.lstrip().startswith(">"))
+    names = {n.lower() for n in MENTION_RE.findall(prose)}
     if not names:
         return []
     return [m["id"] for m in member_rows(room_id) if m["username"].lower() in names]
 
 
-def send_message(room_id: int, sender_id: int, body: str, client_msg_id: str | None = None, reply_to: int | None = None, attachment_id: int | None = None) -> tuple[dict, bool]:
+def send_message(room_id: int, sender_id: int, body: str, client_msg_id: str | None = None, reply_to: int | None = None, attachment_id: int | None = None, *, artifact_version_id: int | None = None, is_test: bool = False) -> tuple[dict, bool]:
     body = (body or "").strip()
     if not body and not attachment_id:
         raise ApiError(400, "empty_message", "消息不能为空")
@@ -414,13 +452,17 @@ def send_message(room_id: int, sender_id: int, body: str, client_msg_id: str | N
             "VALUES(?,?,?,?,?,?,?,?,?,1,?)",
             (room_id, seq, sender_id, kind, body, reply_to, attachment_id, client_msg_id, db.jl(mentions), db.now()),
         )
+        db.run("UPDATE messages SET artifact_version_id=?,is_test=? WHERE id=?", (artifact_version_id, int(is_test), mid))
+        if artifact_version_id:
+            db.run("UPDATE artifact_versions SET message_id=? WHERE id=?", (mid, artifact_version_id))
+            db.run("UPDATE artifacts SET current_version_id=? WHERE id=(SELECT artifact_id FROM artifact_versions WHERE id=?)", (artifact_version_id, artifact_version_id))
         db.run("INSERT INTO message_versions(message_id, version, body, created_at) VALUES(?,1,?,?)", (mid, body, db.now()))
         if attachment_id:
             db.run("UPDATE attachments SET message_id=? WHERE id=?", (mid, attachment_id))
         db.run("UPDATE room_members SET last_read_seq=MAX(last_read_seq, ?) WHERE room_id=? AND user_id=?", (seq, room_id, sender_id))
         add_event(room_id, "message.created", mid, 1, sender_id)
         msg = db.one("SELECT * FROM messages WHERE id=?", (mid,))
-        if kind == "human":
+        if kind == "human" and not is_test:
             tasks.maybe_create_chat_task(room, msg, mentions)
         data = ser_message(msg)
         _notify(room_id, {"type": "message.created", "message": data})
@@ -506,9 +548,12 @@ def delete_message(message_id: int, user_id: int) -> None:
 def mark_read(room_id: int, user_id: int, seq: int) -> dict:
     room = require_member(room_id, user_id)
     seq = max(0, min(int(seq), room["max_seq"]))
-    db.run("UPDATE room_members SET last_read_seq=MAX(last_read_seq, ?) WHERE room_id=? AND user_id=?", (seq, room_id, user_id))
+    was_marked = bool(room["marked_unread"])
+    db.run("UPDATE room_members SET last_read_seq=MAX(last_read_seq, ?), marked_unread=0 WHERE room_id=? AND user_id=?", (seq, room_id, user_id))
     r = require_member(room_id, user_id)
     hub.publish([user_id], {"type": "read.updated", "room_id": room_id, "last_read_seq": r["last_read_seq"], "unread": ser_room(r, user_id)["unread"]})
+    if was_marked:
+        hub.publish([user_id], {"type": "room.updated", "room": ser_room(r, user_id)})
     return {"last_read_seq": r["last_read_seq"]}
 
 
@@ -699,11 +744,22 @@ def new_attachment_path(room_id: int) -> tuple[Path, str]:
     return p, rel
 
 
-def register_attachment(room_id: int, uploader_id: int, filename: str, mime: str, size: int, rel_path: str, sha256: str, duration_ms: int | None = None) -> dict:
+def clean_waveform(raw: str | None) -> str | None:
+    """语音波形：最多 64 个 0-31 的整数，逗号分隔；格式不对就丢弃。"""
+    if not raw:
+        return None
+    try:
+        vals = [max(0, min(31, int(x))) for x in raw.split(",")[:64]]
+    except ValueError:
+        return None
+    return ",".join(map(str, vals)) if len(vals) >= 8 else None
+
+
+def register_attachment(room_id: int, uploader_id: int, filename: str, mime: str, size: int, rel_path: str, sha256: str, duration_ms: int | None = None, waveform: str | None = None) -> dict:
     require_member(room_id, uploader_id)
     aid = db.insert(
-        "INSERT INTO attachments(room_id, uploader_id, filename, mime, size, path, sha256, created_at, duration_ms) VALUES(?,?,?,?,?,?,?,?,?)",
-        (room_id, uploader_id, safe_filename(filename), (mime or "application/octet-stream")[:100], size, rel_path, sha256, db.now(), duration_ms),
+        "INSERT INTO attachments(room_id, uploader_id, filename, mime, size, path, sha256, created_at, duration_ms, waveform) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        (room_id, uploader_id, safe_filename(filename), (mime or "application/octet-stream")[:100], size, rel_path, sha256, db.now(), duration_ms, waveform),
     )
     return ser_attachment(db.one("SELECT * FROM attachments WHERE id=?", (aid,)))
 

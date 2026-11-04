@@ -5,17 +5,21 @@ import { showTimes, setShowTimes, h, icon, iconBtn, avatar, modal, toast, ask, c
 import { api } from './api.js';
 import { loadUsers } from './rooms.js';
 import { pushStatus, enablePush, disablePush } from './push.js';
+import { ACCENTS, FONTS, applyPrefs, savePrefs, bgPicker, paintBg, pickImage, uploadBgImage } from './appearance.js';
+import { setVoiceRate, setAutoNext } from './voice.js';
+import { openInviteDialog, renderInviteList } from './invite.js';
 
 let lastToken = null; // 令牌只在刚创建时可见，只保留在内存里
 
 export function openSettings(tab = 'account') {
   const content = h('div', { class: 'set-content' });
   const nav = h('nav', { class: 'set-nav', role: 'tablist' });
-  const tabs = [['account', '账号与通知'], ['agent', 'Agent 接入'], ...(S.me.role === 'owner' || S.me.can_add_users ? [['members', '成员']] : []), ['about', '关于']];
+  const tabs = [['account', '账号与通知'], ['look', '外观与语音'], ['agent', 'Agent 接入'], ...(S.me.role==='owner'?[['tools','工具与 MCP']]:[]), ...(S.me.role === 'owner' || S.me.can_add_users ? [['members', '成员']] : []), ['about', '关于']];
   const show = (t) => {
     nav.replaceChildren(...tabs.map(([k, l]) => h('button', { type: 'button', role: 'tab', class: k === t ? 'on' : '', 'aria-selected': String(k === t), onclick: () => show(k) }, l)));
+    nav.querySelector('.on')?.scrollIntoView({ inline: 'center', block: 'nearest' });
     content.replaceChildren(h('div', { class: 'loading' }, '加载中…'));
-    ({ account: renderAccount, agent: renderAgent, members: renderMembers, about: renderAbout })[t](content);
+    ({ account: renderAccount, look: renderLook, agent: renderAgent, tools:renderTools, members: renderMembers, about: renderAbout })[t](content);
   };
   const close = modal({ title: '设置', wide: true, body: h('div', { class: 'settings' }, nav, content) });
   window.__closeSettings = close;
@@ -139,84 +143,162 @@ async function loadDevices(box) {
 
 // ------------------------------------------------------------------ Agent 接入
 async function renderAgent(el) {
-  let st, creds = [];
   try {
-    st = (await get('/api/agent/status')).status;
+    const st = (await get('/api/agent/status')).status;
     S.agent = st;
     emit('agent', st);
-    if (S.me.role === 'owner') creds = (await get('/api/agent/credentials')).credentials;
-  } catch (e) {
-    el.replaceChildren(h('div', { class: 'empty' }, e.message));
-    return;
-  }
-  const origin = location.origin;
-  const active = creds.filter((c) => !c.revoked_at);
-  const label = h('input', { type: 'text', placeholder: '例如：我的笔记本', maxlength: '60', 'aria-label': '凭证备注' });
-  const stateText = { unconfigured: '未配置', offline: '离线', online: '在线' }[st.state];
-  const tokenShown = lastToken || '<粘贴上面创建的令牌>';
-  const cmd = `# 安装（在运行 Agent 的那台设备上）\npip install -e .   # 或：pip install aichat\n\nexport AICHAT_AGENT_TOKEN='${tokenShown}'\n\n# 演示（规则实现，不是真正的模型）\naichat-bridge --url ${origin} --adapter mock\n\n# 任意 OpenAI 兼容服务\nexport AICHAT_LLM_API_KEY=… AICHAT_LLM_MODEL=…\naichat-bridge --url ${origin} --adapter openai\n\n# 把提示词交给本地命令行 Agent（例如 Codex CLI）\naichat-bridge --url ${origin} --adapter command --command "codex exec -"`;
-  const checks = h('div', { class: 'checks' });
-  el.replaceChildren(
-    h(
-      'div',
-      { class: 'card agent-card' },
-      h('div', { class: 'ac-top' }, h('span', { class: 'dot ' + st.state }), h('b', null, 'Agent ' + stateText), st.adapter ? h('span', { class: 'tag' }, st.adapter) : null, S.me.role === 'owner' ? h('button', { class: 'btn small', type: 'button', style: { marginLeft: 'auto' }, onclick: () => pickAvatar('/api/agent/avatar') }, '更换 Agent 头像') : null),
-      h('div', { class: 'ac-grid' }, kv('最近心跳', st.last_heartbeat ? fmtFull(st.last_heartbeat) : '—'), kv('最近回复', st.last_reply_at ? fmtFull(st.last_reply_at) : '—'), kv('最近整理', st.last_consolidation_at ? fmtFull(st.last_consolidation_at) : '—'), kv('积压', `${st.backlog_chat} 个回复 · ${st.backlog_events} 项待整理`), kv('规范版本', st.guide_version_agent ? `${st.guide_version_agent}${st.guide_version_agent === st.guide_version_current ? '' : '（已过期，当前 ' + st.guide_version_current + '）'}` : st.guide_version_current)),
-      st.last_error ? h('div', { class: 'note warn' }, '最近错误：' + st.last_error.error) : null
-    ),
-    h('ol', { class: 'steps' },
-      step('说明作用', 'Agent 负责两件事：被 @ 或在私聊里回复；以及在后台静默地把聊天整理成主题记忆。不接入也能正常聊天，AI 状态会显示“未配置”。'),
-      step('选择运行位置', '运行在你当前的电脑，或一台你控制、持续在线的设备。设备关机时聊天照常保存，开机后 Agent 会补整理；互动请求超过有效期会标记“未及时处理”，不会补发过时的回答。'),
-      step('选择 Agent 与模型', '内置适配器：mock（演示）、openai（任意 OpenAI 兼容服务）、anthropic、command（把提示词交给本地命令，如 Codex CLI）。平台数据协议不变，可随时更换。', h('p', { class: 'note' }, '提示：使用云端模型时，处理一条消息所需的当前会话内容会发送给你选择的服务商；不同会话的内容分别处理，不会混在一起。')),
-      step(
-        '创建凭证',
-        S.me.role === 'owner' ? '凭证只交给 Bridge 控制层，可随时撤销；撤销后正在处理的任务立即失效。' : '只有 Owner 可以创建凭证。',
-        S.me.role === 'owner'
-          ? h('div', null,
-              h('div', { class: 'inline' }, label, h('button', { class: 'btn primary', type: 'button', onclick: async () => {
-                try {
-                  const r = await post('/api/agent/credentials', { label: label.value });
-                  lastToken = r.token;
-                  renderAgent(el);
-                } catch (e) {
-                  toast(e.message, 'err');
-                }
-              } }, '创建凭证')),
-              lastToken ? h('div', { class: 'token' }, h('div', null, '令牌只显示这一次，请立即保存：'), h('code', null, lastToken), h('button', { class: 'btn small', type: 'button', onclick: () => copyText(lastToken) }, '复制')) : null,
-              active.length ? h('ul', { class: 'creds' }, active.map((c) => h('li', null, h('span', null, `#${c.id} ${c.label || '（无备注）'}`), h('small', null, fmtFull(c.created_at)), h('button', { class: 'link danger', type: 'button', onclick: async () => {
-                if (!(await ask('撤销后，使用该凭证的 Bridge 将无法继续工作。', { ok: '撤销', danger: true, title: '撤销凭证' }))) return;
-                await del(`/api/agent/credentials/${c.id}`);
-                if (lastToken) lastToken = null;
-                renderAgent(el);
-              } }, '撤销')))) : null
-            )
-          : null
-      ),
-      step('交付规范', '指南与工具说明由服务器维护，是唯一可信版本；Bridge 会自动同步。', h('div', { class: 'links' }, h('a', { class: 'btn small', href: '/agent-guide.md', download: 'AGENT_GUIDE.md' }, icon('download', 14), ' 下载 AGENT_GUIDE.md'), h('a', { class: 'btn small', href: '/openapi.json', target: '_blank', rel: 'noopener' }, '接口说明（OpenAPI JSON）'))),
-      step('启动 Bridge', '在运行 Agent 的设备上执行：', h('div', { class: 'code' }, h('pre', null, cmd), h('button', { class: 'btn small', type: 'button', onclick: () => copyText(cmd.replace(/^#.*\n/gm, '')) }, '复制'))),
-      step('检查闭环', '验证连通性、任务领取与回复。', h('div', null, h('button', { class: 'btn', type: 'button', disabled: S.me.role !== 'owner' || null, onclick: async () => {
-        checks.replaceChildren(h('small', null, '检查中…'));
+    const title = { unconfigured: '未配置', offline: '离线', online: '在线', paused: '已暂停', degraded: '模型调用异常' }[st.state] || st.state;
+    const body = h('div', { class: 'agent-settings' }, h('h3', null, '服务端 Agent · ' + title),
+      h('p', { class: 'note' }, 'AI 由服务器统一运行。普通成员只需聊天，无需安装终端 Agent、复制凭证或保持电脑在线。'),
+      h('div', { class: 'ac-grid' }, kv('最近心跳', st.last_heartbeat ? fmtFull(st.last_heartbeat) : '—'), kv('指南版本', st.guide_version_current)),
+      st.last_error ? h('p', { class: 'note warn' }, '最近错误：' + st.last_error.error) : null);
+    el.replaceChildren(body);
+    if (S.me.role === 'owner') {
+      const { settings: cfg, sdk } = await get('/api/agent/settings');
+      body.append(h('p', { class: 'muted small' }, `执行引擎：Claude Agent SDK ${sdk.version || '未安装'} · 要求 ${sdk.expected}`));
+      const input = (name, label, type = 'text') => {
+        const field = h('input', { type, value: cfg[name], 'aria-label': label, step: type === 'number' ? 'any' : undefined });
+        return [h('label', { class: 'agent-field' }, h('span', null, label), field), field];
+      };
+      const [modelRow, model] = input('model', '默认 Claude 模型 ID');
+      const key = h('input', { type: 'password', autocomplete: 'new-password', placeholder: cfg.configured ? '已保存，留空保持' : '填写服务端 API Key', 'aria-label': '服务端 API Key' });
+      const [urlRow, url] = input('base_url', '兼容网关地址（可选）');
+      const enabled = h('input', { type: 'checkbox', checked: cfg.enabled });
+      const memory = h('input', { type: 'checkbox', checked: cfg.memory_enabled });
+      const form = h('div', { class: 'agent-form' }, modelRow, h('label', { class: 'agent-field' }, h('span', null, '服务端 API Key'), key), urlRow,
+        h('label', null, enabled, ' 启用服务端 AI'), h('label', null, memory, ' 启用后台记忆整理'));
+      const numeric = {};
+      for (const [name, label] of [['max_concurrency','总并发'],['reserved_chat_slots','交互预留名额'],['max_turns','单次最大轮数'],['timeout_seconds','单次超时（秒）'],['max_run_usd','单次费用上限（美元，SDK 估算）'],['monthly_usd','平台月额度（美元）'],['user_monthly_usd','成员月额度（美元）'],['room_monthly_usd','会话月额度（美元）']]) {
+        const [row, field] = input(name, label, 'number'); numeric[name] = field; form.append(row);
+      }
+      const models = {};
+      const advanced = h('details', null, h('summary', null, '按用途选择 Claude 模型（可选）'));
+      for (const name of ['chat','delivery','memory']) {
+        const field = h('input', { value: cfg.models[name] || '', placeholder: '沿用默认模型', 'aria-label': name + ' 模型' });
+        models[name] = field; advanced.append(h('label', { class: 'agent-field' }, name, field));
+      }
+      form.append(advanced);
+      form.append(h('button', { class: 'btn primary', type: 'button', onclick: async () => {
         try {
-          const r = await post('/api/agent/selfcheck');
-          checks.replaceChildren(...r.checks.map((c) => h('div', { class: 'check-row ' + (c.ok ? 'ok' : 'bad') }, icon(c.ok ? 'check' : 'close', 14), c.name)), r.ok ? h('div', { class: 'note' }, '已在你与 Agent 的私聊里发出测试消息。', h('button', { class: 'link', type: 'button', onclick: () => { window.__closeSettings && window.__closeSettings(); emit('open-room', { id: r.room_id }); } }, '去看回复')) : h('div', { class: 'note warn' }, '还没有通过：请先创建凭证并启动 Bridge。'));
-        } catch (e) {
-          checks.replaceChildren(h('div', { class: 'note warn' }, e.message));
-        }
-      } }, '运行接入自检'), checks))
-    )
-  );
+          const values = { model: model.value.trim(), base_url: url.value.trim(), enabled: enabled.checked, memory_enabled: memory.checked,
+            ...Object.fromEntries(Object.entries(numeric).map(([k,v]) => [k, Number(v.value)])),
+            models: Object.fromEntries(Object.entries(models).filter(([k,v]) => v.value.trim()).map(([k,v]) => [k, v.value.trim()])) };
+          if (key.value) values.api_key = key.value;
+          await api('PUT', '/api/agent/settings', values);
+          key.value = '';
+          toast('已保存；正在执行的旧配置任务已停止，新任务使用新设置');
+          await renderAgent(el);
+        } catch(e) { toast(e.message, 'err'); }
+      } }, '保存服务端配置'));
+      body.append(form);
+      body.append(h('p', { class: 'note' }, '总并发为 1 时，交互预留设为 0，长任务期间其他 AI 请求会排队。月额度按已知费用与未知费用预留量共同控制。'));
+      const checkBox = h('div', { class: 'checks', role: 'status' });
+      const renderChecks = (r) => {
+        checkBox.replaceChildren(...r.checks.map(c => h('div', { class: 'check-row ' + (c.ok ? 'ok' : 'bad') }, c.ok ? '✓ ' : '… ', c.name)),
+          h('p', null, r.ok ? '自检通过：真实 SDK、作用域读取和文件持久化已验证。' : r.state === 'pending' ? '自检执行中，尚未通过…' : '自检未通过' + (r.error ? '：' + r.error : '')));
+        if (r.state === 'pending' && r.task_id) setTimeout(async () => { if (!checkBox.isConnected) return; try { renderChecks(await get(`/api/agent/selfcheck/${r.task_id}`)); } catch(e) { checkBox.textContent = e.message; } }, 1500);
+      };
+      body.append(h('button', { class: 'btn', type: 'button', onclick: async () => { try { renderChecks(await post('/api/agent/selfcheck')); } catch(e) { toast(e.message, 'err'); } } }, '运行真实 SDK 与文件自检'), checkBox);
+    }
+    const usage = await get('/api/agent/usage');
+    body.append(h('h3', null, '本月任务用量'), h('p', null, `已知费用 $${usage.known_cost_usd.toFixed(4)} · ${usage.unknown_attempts} 次费用未知（保留预算）`),
+      h('div', { class: 'usage-list' }, usage.attempts.slice(0,20).map(a => h('div', { class: 'kv' }, `任务 #${a.task_id} / 第 ${a.attempt} 次 · ${a.profile}`, a.cost_usd === null ? '费用未知' : '$' + a.cost_usd.toFixed(4)))));
+    body.append(h('a', { class: 'btn small', href: '/agent-guide.md', download: 'AGENT_GUIDE.md' }, '下载当前 Agent 指南'));
+  } catch(e) { el.replaceChildren(h('p', { class: 'note warn' }, e.message)); }
 }
 
 const kv = (k, v) => h('div', { class: 'kv' }, h('small', null, k), h('span', null, v));
 const step = (title, text, extra) => h('li', null, h('div', { class: 'step-body' }, h('b', null, title), h('p', null, text), extra));
 
+async function renderTools(el) {
+  try {
+    const data=await get('/api/agent/integrations');const cfg=data.integrations;
+    const enabled=h('input',{type:'checkbox',checked:data.registration_enabled});
+    const provider=h('select',{'aria-label':'联网搜索服务'},[['auto','自动（无需 Key）'],['bing','Bing RSS'],['duckduckgo','DuckDuckGo'],['brave','Brave Search'],['tavily','Tavily'],['searxng','SearXNG']].map(([v,t])=>h('option',{value:v,selected:cfg.search.provider===v},t)));
+    const url=h('input',{type:'text',value:cfg.search.url,placeholder:'可选服务地址；SearXNG 必填','aria-label':'搜索服务地址'});
+    const key=h('input',{type:'password',autocomplete:'new-password',placeholder:cfg.search.api_key?'已保存，留空保持':'可选搜索 API Key','aria-label':'搜索 API Key'});
+    const servers=h('textarea',{class:'mcp-config','aria-label':'MCP 服务配置',rows:16,spellcheck:false,value:JSON.stringify(cfg.mcp_servers,null,2)});
+    const checks=h('div',{class:'mcp-checks'});
+    Object.keys(cfg.mcp_servers).forEach(name=>{
+      const result=h('span',{role:'status'});
+      checks.append(h('div',{class:'kv'},h('button',{type:'button',class:'btn small',onclick:async()=>{
+        result.textContent='连接中…';try {const r=await post('/api/agent/integrations/check',{name});result.textContent=r.status==='connected'?`已连接 · ${r.tool_count} 个工具：${r.tools.join('、')}`:`连接失败：${r.error}`;}catch(e){result.textContent=e.message;}
+      }},'测试 '+name),result));
+    });
+    el.replaceChildren(
+      h('h3',null,'Agent 完整执行环境'),
+      h('p',{class:'note'},'所有 Agent 启用全部 Claude Code 工具并自动执行。支持 Bash、Python、npm、依赖安装、项目测试、构建和文件读写，工作目录在服务器持久保存。'),
+      h('p',{class:'muted small'},`执行账号 UID ${data.execution.os_uid ?? '—'} · Python ${data.execution.python} · Node ${data.execution.node || '未安装'} · npm ${data.execution.npm || '未安装'}`),
+      h('h3',null,'账号注册'),h('label',null,enabled,' 开放注册（新账号可直接登录和使用 Agent）'),
+      h('button',{type:'button',class:'btn small',onclick:async()=>{try{await api('PUT','/api/registration',{enabled:enabled.checked});toast('注册设置已保存');}catch(e){toast(e.message,'err');}}},'保存注册设置'),
+      h('h3',null,'联网搜索与网页浏览'),
+      h('p',{class:'muted'},'默认搜索无需额外 Key。遇到搜索服务限流时可切换服务；动态网页支持打开、点击、填写、JavaScript 和截图。'),
+      h('div',{class:'form'},h('label',null,'搜索服务',provider),h('label',null,'服务地址',url),h('label',null,'服务 Key',key)),
+      h('h3',null,'外部 MCP 服务'),
+      h('p',{class:'muted'},'支持 http、sse 和 stdio。接入日历、云盘等服务后，Agent 自动使用其工具；服务要求认证时，请配置 headers 或 env。'),
+      h('details',null,h('summary',null,'配置示例'),h('pre',null,JSON.stringify({calendar:{type:'http',url:'https://your-calendar-service.example/mcp',headers:{Authorization:'Bearer YOUR_TOKEN'}},local:{type:'stdio',command:'npx',args:['-y','your-mcp-server'],env:{API_KEY:'YOUR_TOKEN'}}},null,2))),
+      servers,h('p',{class:'muted small'},'已保存的 headers、env、args 用 __UNCHANGED__ 标记；保留标记即可沿用，不会显示明文凭证。删除一个服务项可断开连接。'),
+      h('button',{type:'button',class:'btn primary',onclick:async()=>{try{
+        await api('PUT','/api/agent/integrations',{mcp_servers:JSON.parse(servers.value),search:{provider:provider.value,url:url.value.trim(),api_key:key.value||cfg.search.api_key||''}});
+        key.value='';toast('工具配置已保存，新任务立即使用');await renderTools(el);
+      }catch(e){toast(e.message,'err');}}},'保存工具与 MCP 配置'),
+      checks);
+  } catch(e){el.replaceChildren(h('p',{class:'note warn'},e.message));}
+}
+
 // ------------------------------------------------------------------ 成员
+// ------------------------------------------------------------------ 外观与语音
+function renderLook(el) {
+  const p = S.prefs || {};
+  const seg = (items, cur, key) =>
+    h('div', { class: 'seg', role: 'radiogroup' }, items.map(([v, label]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(cur === v), class: cur === v ? 'on' : '', onclick: async () => (await savePrefs({ [key]: v })) && renderLook(el) }, label)));
+  const sw = (key, label, hint) => h('label', { class: 'switch-row' }, h('input', { type: 'checkbox', checked: !!p[key], onchange: async (e) => { const r = await savePrefs({ [key]: e.target.checked }); if (r && key === 'autoplay') setAutoNext(r.autoplay); } }), h('span', { class: 'sw-text' }, label, hint ? h('small', null, hint) : null));
+  const preview = h('div', { class: 'bgbig small' }, h('div', { class: 'fake other' }, '字号和颜色在这里预览'), h('div', { class: 'fake own' }, '我发的消息是这个颜色'));
+  paintBg(preview, p.bg);
+  el.replaceChildren(
+    h('h3', null, '主题色'),
+    h('div', { class: 'accents' }, ACCENTS.map((a) => {
+      const b = h('button', { type: 'button', class: 'accent-sw' + (p.accent === a.id ? ' on' : ''), title: a.name, 'aria-label': a.name, 'aria-pressed': String(p.accent === a.id), onclick: async () => (await savePrefs({ accent: a.id })) && renderLook(el) }, h('span', null), h('small', null, a.name));
+      b.firstChild.style.background = a.c;
+      return b;
+    })),
+    h('h3', null, '字号'),
+    seg(FONTS, p.font || 'm', 'font'),
+    preview,
+    h('h3', null, '默认聊天背景'),
+    h('p', { class: 'muted small' }, '所有聊天默认用这个背景；也可以在某个聊天的「⋯ → 聊天背景」里单独设置。'),
+    bgPicker(p.bg ?? null, async (bg) => {
+      const r = await savePrefs({ bg });
+      r && paintBg(preview, r.bg);
+    }, { allowDefault: false }),
+    h('div', { class: 'row-actions' },
+      h('button', { class: 'btn small', type: 'button', onclick: () => pickImage(async (f) => { const r = await uploadBgImage(f); if (r) { await savePrefs({ bg: 'image' }); renderLook(el); toast('背景图已更新'); } }) }, icon('image', 15), p.bg_image_url ? '更换背景图' : '上传自己的背景图'),
+      p.bg_image_url ? h('button', { class: 'link', type: 'button', onclick: async () => { try { const r = await api('DELETE', '/api/me/background'); applyPrefs(r.prefs); if (S.prefs.bg === 'image') await savePrefs({ bg: null }); renderLook(el); } catch (e) { toast(e.message, 'err'); } } }, '移除背景图') : null),
+    sw('dim', '深色模式下调暗背景', '晚上看不刺眼，文字更清楚'),
+    h('h3', null, 'AI 回复'),
+    sw('collapse_long', '长回复默认折叠', '超过一屏的 Agent 回复只显示开头，点「展开全文」看完整内容'),
+    sw('motion', '界面动画', '切换页面、打开弹窗、收到消息时的过渡效果。系统开启了“减少动态效果”时会自动关闭'),
+    sw('link_preview', '显示链接预览', '消息里的网址由服务器代为抓取标题和封面，显示成卡片。关掉后只显示普通链接'),
+    h('h3', null, '语音消息'),
+    h('div', { class: 'field' }, '默认播放速度', seg([[1, '1×'], [1.5, '1.5×'], [2, '2×']], p.voice_rate || 1, 'voice_rate')),
+    sw('autoplay', '自动连播', '听完一条后，自动播放下一条还没听过的语音'),
+    h('p', { class: 'muted small' }, '录音：按住麦克风说话，松开发送；上滑锁定后可以松手、暂停和试听；左滑取消。长按任意文字消息可以「朗读」。')
+  );
+  setVoiceRate(p.voice_rate || 1);
+}
+
 async function renderMembers(el) {
   await loadUsers();
+  const invBox = h('div', { class: 'inv-list' });
+  renderInviteList(invBox);
   const u = h('input', { type: 'text', placeholder: '用户名（字母数字）', autocomplete: 'off', 'aria-label': '用户名' });
   const d = h('input', { type: 'text', placeholder: '显示名', 'aria-label': '显示名' });
   const p = h('input', { type: 'password', placeholder: '初始密码（至少 8 位）', autocomplete: 'new-password', 'aria-label': '初始密码' });
   el.replaceChildren(
+    h('h3', null, '邀请新成员'),
+    h('div', { class: 'card' }, h('p', { class: 'muted small' }, '生成二维码或链接发给对方，对方扫码就能注册；可以设置有效期、人数，并直接拉进某个群。'), h('button', { class: 'btn primary', type: 'button', onclick: () => openInviteDialog() }, icon('qr', 16), '生成邀请二维码')),
+    h('h3', null, '已发出的邀请'),
+    invBox,
     h('h3', null, '成员'),
     h('div', { class: 'members big' }, [S.me, ...S.users].map((m) => h('div', { class: 'member' }, avatar(m, 34), h('div', null, h('b', null, m.display_name), h('div', { class: 'muted' }, '@' + m.username + (m.role === 'owner' ? ' · Owner' : m.can_add_users ? ' · 可添加成员' : ''))),
       S.me.role === 'owner' && m.role === 'user' ? h('label', { class: 'perm', title: '允许这位成员添加新账号' }, h('input', { type: 'checkbox', checked: !!m.can_add_users, onchange: async (e) => {
@@ -230,7 +312,7 @@ async function renderMembers(el) {
           e.target.checked = !e.target.checked;
         }
       } }), h('span', null, '可添加成员')) : null))),
-    h('h3', null, '添加成员'),
+    h('h3', null, '直接创建账号'),
     h('div', { class: 'form' }, u, d, p, h('button', { class: 'btn primary', type: 'button', onclick: async () => {
       try {
         await post('/api/users', { username: u.value, display_name: d.value || null, password: p.value });

@@ -9,7 +9,7 @@ from aichat.main import create_app
 
 class Env:
     def __init__(self, tmp_path):
-        self.app = create_app(tmp_path / "data", scheduler=False)
+        self.app = create_app(tmp_path / "data", scheduler=False, allow_legacy_agent=True, start_agent_service=False)
         self.cfg = config.get()
         self.alice_id = auth.create_user("alice", "Alice", "password-alice", "owner")
         self.bob_id = auth.create_user("bob", "Bob", "password-bob", "user")
@@ -29,6 +29,7 @@ class Env:
         self.agent_dm_a = chat.ensure_agent_dm(self.alice_id)
         self.agent_dm_b = chat.ensure_agent_dm(self.bob_id)
         self.cred_id, self.cred = auth.issue_credential("test")
+        self.last_lease = None
 
     # ---- helpers
     def say(self, client, room_id, body, **kw):
@@ -38,12 +39,16 @@ class Env:
 
     @property
     def cred_h(self):
-        return {"Authorization": f"Bearer {self.cred}"}
+        h = {"Authorization": f"Bearer {self.cred}"}
+        if self.last_lease:
+            h["X-Task-Token"] = self.last_lease["task_token"]
+        return h
 
     def lease(self, cred_h=None):
         r = self.anon.post("/api/agent/lease", headers=cred_h or self.cred_h)
         assert r.status_code == 200, r.text
-        return r.json()["lease"]
+        self.last_lease = r.json()["lease"]
+        return self.last_lease
 
     @staticmethod
     def th(lease):

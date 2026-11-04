@@ -1,4 +1,7 @@
 // 通用小工具：DOM 构建、安全的 Markdown 渲染（不使用 innerHTML）、时间格式、图标、提示与对话框
+import { openLayer } from './nav.js';
+import { enter, exit } from './motion.js';
+
 export const $ = (sel, el = document) => el.querySelector(sel);
 export const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 
@@ -7,6 +10,7 @@ export function h(tag, attrs, ...children) {
   for (const [k, v] of Object.entries(attrs || {})) {
     if (v == null || v === false) continue;
     if (k === 'class') el.className = v;
+    else if (k === 'value' && tag === 'textarea') el.value = v;
     else if (k === 'dataset') Object.assign(el.dataset, v);
     else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
     else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
@@ -59,6 +63,18 @@ const ICONS = {
   camera: '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
   flip: '<path d="M3 12a9 9 0 0 1 15.5-6.2L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.5 6.2L3 16M3 21v-5h5"/>',
   pip: '<rect x="2" y="4" width="20" height="16" rx="2"/><rect x="12" y="12" width="8" height="6" rx="1" fill="currentColor"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>',
+  pin: '<path d="M12 17v5M9 3h6l-1 7 4 3v2H6v-2l4-3z"/>',
+  unread: '<circle cx="12" cy="12" r="4" fill="currentColor"/><circle cx="12" cy="12" r="9"/>',
+  speaker: '<path d="M11 5L6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>',
+  palette: '<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.9 1.2-1.8-.4-1-.1-2.2 1.2-2.2H17a4 4 0 0 0 4-4c0-5.5-4-10-9-10z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10" cy="7" r="1.2"/><circle cx="15" cy="7.5" r="1.2"/>',
+  qr: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 17h4v4h-4"/>',
+  share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  type: '<path d="M4 7V4h16v3M9 20h6M12 4v16"/>',
+  expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  shield: '<path d="M12 3l8 3v6c0 4.5-3.2 8.2-8 9-4.8-.8-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
   history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
 };
 export function icon(name, size = 18) {
@@ -141,9 +157,10 @@ export function avatar(user, size = 36) {
     return el;
   }
   if (isAgent) {
-    el.append(icon('bot', Math.round(size * 0.55)));
+    el.classList.add('has-img', 'logo');
+    el.append(h('img', { src: '/static/icon.svg', alt: '', draggable: 'false' }));
   } else {
-    el.style.background = COLORS[(user ? user.id : 0) % COLORS.length];
+    el.style.setProperty('--av', COLORS[(user ? user.id : 0) % COLORS.length]);
     el.textContent = [...name][0].toUpperCase();
   }
   return el;
@@ -176,51 +193,190 @@ export function inline(text, ctx = {}) {
   return out;
 }
 
-export function renderMarkdown(text, ctx = {}) {
-  const root = h('div', { class: 'md' });
-  const parts = String(text || '').split(/```/);
-  parts.forEach((part, i) => {
-    if (i % 2 === 1) {
-      const nl = part.indexOf('\n');
-      const code = nl >= 0 && /^[\w+-]*$/.test(part.slice(0, nl).trim()) ? part.slice(nl + 1) : part;
-      root.append(h('pre', null, h('code', null, code.replace(/\n$/, ''))));
-      return;
-    }
-    const lines = part.split('\n');
-    let list = null;
-    let buf = [];
-    const flush = () => {
-      if (buf.length) {
-        const chunk = buf.join('\n');
-        if (chunk.trim()) root.append(h('div', { class: 'p' }, inline(chunk, ctx)));
-        buf = [];
-      }
-    };
-    for (const line of lines) {
-      const li = line.match(/^\s*(?:[-*•]|\d+[.)])\s+(.*)$/);
-      const hd = line.match(/^#{1,4}\s+(.*)$/);
-      const bq = line.match(/^>\s?(.*)$/);
-      if (li) {
-        flush();
-        if (!list) {
-          list = h('ul', null);
-          root.append(list);
-        }
-        list.append(h('li', null, inline(li[1], ctx)));
+// 块级解析：代码块（带语言和复制）、表格（含对齐）、标题、分隔线、多行/嵌套引用、有序/无序/任务列表（可嵌套）、段落
+const FENCE = /^\s*(`{3,}|~{3,})\s*([\w+#.-]*)\s*$/;
+const TABLE_SEP = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)+\|?\s*$/;
+const LIST_ITEM = /^(\s*)([-*+•]|\d{1,9}[.)])\s+(.*)$/;
+const HR = /^\s*([-*_])(?:\s*\1){2,}\s*$/;
+const LANG_NAMES = { js: 'JavaScript', javascript: 'JavaScript', ts: 'TypeScript', typescript: 'TypeScript', py: 'Python', python: 'Python', sh: 'Shell', bash: 'Shell', shell: 'Shell', zsh: 'Shell', json: 'JSON', html: 'HTML', css: 'CSS', sql: 'SQL', go: 'Go', rust: 'Rust', java: 'Java', c: 'C', cpp: 'C++', 'c++': 'C++', yaml: 'YAML', yml: 'YAML', md: 'Markdown', markdown: 'Markdown', diff: 'Diff', text: '文本', txt: '文本' };
+
+function codeBlock(code, lang) {
+  const label = LANG_NAMES[(lang || '').toLowerCase()] || lang || '代码';
+  const btn = h('button', { type: 'button', class: 'cb-copy', 'aria-label': '复制代码' }, '复制');
+  btn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await copyText(code);
+    btn.textContent = '已复制';
+    setTimeout(() => (btn.textContent = '复制'), 1400);
+  });
+  return h('div', { class: 'codeblock' }, h('div', { class: 'cb-head' }, h('span', null, label), btn), h('pre', null, h('code', null, code)));
+}
+
+function splitCells(line) {
+  let t = line.trim();
+  if (t.startsWith('|')) t = t.slice(1);
+  if (t.endsWith('|') && !t.endsWith('\\|')) t = t.slice(0, -1);
+  return t.split(/(?<!\\)\|/).map((x) => x.trim().replace(/\\\|/g, '|'));
+}
+
+function tableBlock(lines, i, ctx) {
+  const headers = splitCells(lines[i]).slice(0, 20);
+  const aligns = splitCells(lines[i + 1]).map((c) => (/^:-+:$/.test(c) ? 'center' : /-+:$/.test(c) ? 'right' : ''));
+  const cell = (tag, txt, k) => h(tag, aligns[k] ? { class: 'al-' + aligns[k] } : null, inline(txt, ctx));
+  const tbody = h('tbody');
+  let j = i + 2;
+  while (j < lines.length && lines[j].includes('|') && lines[j].trim()) {
+    const row = splitCells(lines[j]);
+    tbody.append(h('tr', null, headers.map((_, k) => cell('td', row[k] || '', k))));
+    j++;
+  }
+  const el = h('div', { class: 'md-table-scroll' }, h('table', null, h('thead', null, h('tr', null, headers.map((t, k) => cell('th', t, k)))), tbody));
+  return [el, j];
+}
+
+function listItemContent(text, ctx) {
+  const task = text.match(/^\[([ xX])\]\s+(.*)$/);
+  if (task) {
+    const done = task[1] !== ' ';
+    return [h('span', { class: 'task' + (done ? ' done' : '') }, h('span', { class: 'tbox', 'aria-hidden': 'true' }, done ? '✓' : ''), h('span', null, inline(task[2], ctx)))];
+  }
+  return inline(text, ctx);
+}
+
+function listBlock(lines, i, ctx) {
+  // 以缩进决定层级；连续的非列表、缩进行视为上一项的续行
+  const root = { indent: -1, el: null, items: [] };
+  const stack = [];
+  let j = i;
+  let lastLi = null;
+  while (j < lines.length) {
+    const line = lines[j];
+    const m = line.match(LIST_ITEM);
+    if (!m) {
+      if (lastLi && line.trim() && /^\s{2,}\S/.test(line) && !FENCE.test(line)) {
+        lastLi.append(h('br'), ...inline(line.trim(), ctx));
+        j++;
         continue;
       }
-      list = null;
-      if (hd) {
-        flush();
-        root.append(h('div', { class: 'p hd' }, inline(hd[1], ctx)));
-      } else if (bq) {
-        flush();
-        root.append(h('blockquote', null, inline(bq[1], ctx)));
-      } else buf.push(line);
+      break;
     }
-    flush();
-  });
+    const indent = m[1].replace(/\t/g, '    ').length;
+    const ordered = /\d/.test(m[2]);
+    while (stack.length && indent < stack[stack.length - 1].indent) stack.pop();
+    let top = stack[stack.length - 1];
+    if (!top || indent > top.indent + 1) {
+      const el = h(ordered ? 'ol' : 'ul');
+      if (ordered && parseInt(m[2], 10) !== 1) el.setAttribute('start', String(parseInt(m[2], 10)));
+      if (top && lastLi) lastLi.append(el);
+      top = { indent, el };
+      stack.push(top);
+      if (!root.el) root.el = el;
+    }
+    lastLi = h('li', null, listItemContent(m[3], ctx));
+    top.el.append(lastLi);
+    j++;
+    if (stack.length > 6) break;
+  }
+  return [root.el, j];
+}
+
+export function renderMarkdown(text, ctx = {}, depth = 0) {
+  const root = h('div', { class: 'md' });
+  const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n');
+  let buf = [];
+  const flush = () => {
+    if (buf.length) {
+      const chunk = buf.join('\n');
+      if (chunk.trim()) root.append(h('div', { class: 'p' }, inline(chunk, ctx)));
+      buf = [];
+    }
+  };
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const fence = line.match(FENCE);
+    if (fence) {
+      flush();
+      const mark = fence[1];
+      const code = [];
+      let j = i + 1;
+      while (j < lines.length && !(lines[j].trim().startsWith(mark[0].repeat(mark.length)) && /^\s*(`{3,}|~{3,})\s*$/.test(lines[j]))) code.push(lines[j++]);
+      root.append(codeBlock(code.join('\n'), fence[2]));
+      i = j + 1;
+      continue;
+    }
+    if (line.includes('|') && TABLE_SEP.test(lines[i + 1] || '')) {
+      flush();
+      const [el, j] = tableBlock(lines, i, ctx);
+      root.append(el);
+      i = j;
+      continue;
+    }
+    if (HR.test(line) && !buf.length) {
+      root.append(h('hr'));
+      i++;
+      continue;
+    }
+    const hd = line.match(/^(#{1,6})\s+(.*?)\s*#*\s*$/);
+    if (hd) {
+      flush();
+      root.append(h('div', { class: 'p hd h' + Math.min(hd[1].length, 4), role: 'heading', 'aria-level': String(Math.min(hd[1].length + 1, 6)) }, inline(hd[2], ctx)));
+      i++;
+      continue;
+    }
+    if (/^\s*>/.test(line)) {
+      flush();
+      const inner = [];
+      while (i < lines.length && /^\s*>/.test(lines[i])) inner.push(lines[i++].replace(/^\s*>\s?/, ''));
+      root.append(depth < 3 ? h('blockquote', null, renderMarkdown(inner.join('\n'), ctx, depth + 1)) : h('blockquote', null, inner.join('\n')));
+      continue;
+    }
+    if (LIST_ITEM.test(line)) {
+      flush();
+      const [el, j] = listBlock(lines, i, ctx);
+      if (el) root.append(el);
+      i = j;
+      continue;
+    }
+    if (!line.trim()) {
+      flush();
+      i++;
+      continue;
+    }
+    buf.push(line);
+    i++;
+  }
+  flush();
   return root;
+}
+
+// 搜索结果摘要：去掉 Markdown 记号，截取关键词前后的文字，并高亮关键词
+export function snippet(body, q, before = 28, after = 70) {
+  const text = plainText(body).replace(/\s+/g, ' ');
+  const needle = String(q || '').trim().toLowerCase();
+  const i = needle ? text.toLowerCase().indexOf(needle) : -1;
+  if (i < 0) return [text.length > before + after ? text.slice(0, before + after) + '…' : text];
+  const a = Math.max(0, i - before);
+  const b = Math.min(text.length, i + needle.length + after);
+  return [a > 0 ? '…' : '', text.slice(a, i), h('mark', null, text.slice(i, i + needle.length)), text.slice(i + needle.length, b), b < text.length ? '…' : ''];
+}
+
+// 纯文本（朗读、预览用）：去掉常见 Markdown 记号
+export function plainText(md) {
+  return String(md || '')
+    .replace(/```[\s\S]*?```/g, ' （代码略） ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/https?:\/\/\S+/g, '链接')
+    .replace(/^\s*#{1,6}\s+/gm, '')
+    .replace(/^\s*>\s?/gm, '')
+    .replace(/^\s*[-*+•]\s+(\[[ xX]\]\s+)?/gm, '')
+    .replace(/\*\*|__|~~|\*/g, '')
+    .replace(/\|/g, ' ')
+    .replace(/^\s*:?-{3,}:?.*$/gm, '')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
 }
 
 // ---------------------------------------------------------------- 提示 / 对话框
@@ -236,27 +392,37 @@ export function toast(msg, kind = '') {
   setTimeout(() => t.remove(), 3600);
 }
 
-export function modal({ title, body, actions = [], wide = false, onClose }) {
+export function modal({ title, body, actions = [], wide = false, sheet = false, onClose }) {
+  let closed = false;
   const close = () => {
+    if (closed) return;
+    closed = true;
     document.removeEventListener('keydown', onKey, true);
-    overlay.remove();
+    overlay.style.pointerEvents = 'none';
+    exit(card, sheet && window.innerWidth <= 700 ? 'sheet' : 'pop');
+    exit(overlay, 'fade').then(() => overlay.remove());
+    leave(); // 同步浏览器历史（返回键）
     onClose && onClose();
   };
+  const leave = openLayer(close);
   const onKey = (e) => {
     if (e.key === 'Escape') {
+      if (_pop) return; // 先关闭弹出菜单，再关弹窗
       e.stopPropagation();
       close();
     }
   };
   const card = h(
     'div',
-    { class: 'modal' + (wide ? ' wide' : ''), role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
-    h('div', { class: 'modal-head' }, h('h2', null, title), iconBtn('close', '关闭', close)),
-    h('div', { class: 'modal-body' }, body),
+    { class: 'modal' + (wide ? ' wide' : '') + (sheet ? ' sheet' : ''), role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
+    sheet ? null : h('div', { class: 'modal-head' }, h('h2', null, title), iconBtn('close', '关闭', close)),
+    h('div', { class: 'modal-body' + (sheet ? ' flush' : '') }, body),
     actions.length ? h('div', { class: 'modal-actions' }, actions) : null
   );
   const overlay = h('div', { class: 'overlay', onmousedown: (e) => e.target === overlay && close() }, card);
   document.body.append(overlay);
+  enter(overlay, 'fade');
+  enter(card, sheet && window.innerWidth <= 700 ? 'sheet' : 'pop');
   document.addEventListener('keydown', onKey, true);
   const first = card.querySelector('input,textarea,select,button.primary');
   first && first.focus();
@@ -334,4 +500,41 @@ export function setShowTimes(on) {
     localStorage.setItem('sc.hideTimes', on ? '0' : '1');
   } catch {}
   document.body.classList.toggle('hide-times', !on);
+}
+
+
+// 轻量弹出菜单：贴着触发按钮显示（右对齐、在下方），点外面或按 Esc 关闭
+let _pop = null;
+export function closePopMenu() {
+  _pop && _pop.remove();
+  _pop = null;
+}
+export function popMenu(anchor, items) {
+  closePopMenu();
+  const el = h(
+    'div',
+    { class: 'ctxmenu', role: 'menu' },
+    items.map((it) =>
+      h('button', { type: 'button', role: 'menuitem', class: it.on ? 'on' : '', onclick: () => (closePopMenu(), it.fn()) }, it.icon ? icon(it.icon, 16) : null, h('span', { class: 'pm-label' }, it.label), it.on ? icon('check', 15) : null)
+    )
+  );
+  document.body.append(el);
+  _pop = el;
+  const b = anchor.getBoundingClientRect();
+  const w = el.offsetWidth;
+  const hh = el.offsetHeight;
+  el.style.left = Math.max(8, Math.min(b.right - w, window.innerWidth - w - 8)) + 'px';
+  el.style.top = Math.max(8, Math.min(b.bottom + 6, window.innerHeight - hh - 8)) + 'px';
+  setTimeout(() => {
+    const off = (e) => {
+      if (_pop && !_pop.contains(e.target)) {
+        closePopMenu();
+        document.removeEventListener('pointerdown', off, true);
+        document.removeEventListener('keydown', esc, true);
+      }
+    };
+    const esc = (e) => e.key === 'Escape' && (closePopMenu(), document.removeEventListener('pointerdown', off, true), document.removeEventListener('keydown', esc, true));
+    document.addEventListener('pointerdown', off, true);
+    document.addEventListener('keydown', esc, true);
+  }, 0);
 }

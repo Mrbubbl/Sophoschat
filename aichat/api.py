@@ -5,11 +5,11 @@ import hashlib
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, Depends, File, Form, Query, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from . import auth, backup, calls, chat, config, db, export, hub, memory, push, security, tasks
+from . import auth, backup, calls, chat, config, db, export, hub, invites, linkpreview, memory, prefs, push, security, tasks
 from .errors import ApiError
 
 COOKIE = "aichat_session"
@@ -56,6 +56,14 @@ def uid(u) -> int:
 class LoginIn(BaseModel):
     username: str
     password: str
+
+
+class RegisterIn(BaseModel):
+    model_config = {"extra":"forbid"}
+    username: str = Field(min_length=2,max_length=32)
+    display_name: str | None = Field(default=None,max_length=40)
+    password: str = Field(min_length=8,max_length=256)
+    invite: str | None = Field(default=None,max_length=64)
 
 
 class PasswordIn(BaseModel):
@@ -165,6 +173,34 @@ async def login(body: LoginIn, request: Request, response: Response):
     return {"user": auth.public_user(user)}
 
 
+@router.get("/api/registration")
+async def registration_info():
+    return {"enabled":db.get_kv('registration_enabled')!='0'}
+
+
+@router.post("/api/register")
+async def register(body:RegisterIn,request:Request,response:Response):
+    if not _origin_ok(request.headers.get('origin'),request.headers.get('host'),request.headers.get('x-forwarded-host')):
+        raise ApiError(403,'bad_origin')
+    if not body.invite and db.get_kv('registration_enabled')=='0':raise ApiError(403,'registration_disabled','当前未开放注册')
+    # Limit the public, CPU-intensive password hashing endpoint per source IP.
+    import time
+    ip=request.client.host if request.client else ''
+    key=('[registration]',ip)  # This prefix cannot be a valid login username.
+    recent=[t for t in auth._failures.get(key,[]) if time.time()-t<300]
+    if len(recent)>=5:raise ApiError(429,'too_many_attempts','注册过于频繁，请 5 分钟后再试')
+    auth._failures[key]=[*recent,time.time()]
+    with db.tx():
+        new_id=auth.create_user(body.username,body.display_name,body.password,'user')
+        if body.invite:invites.redeem(body.invite,new_id)
+        chat.bootstrap_user(new_id)
+        token=auth.create_session(new_id,request.headers.get('user-agent',''),ip)
+        db.audit(f'user:{new_id}','user.register',None)
+    c=config.get()
+    response.set_cookie(COOKIE,token,httponly=True,samesite='lax',secure=c.cookie_secure,max_age=c.session_days*86400,path='/')
+    return {'user':auth.public_user(auth.get_user(new_id))}
+
+
 @router.post("/api/logout")
 async def logout(request: Request, response: Response):
     auth.delete_session(request.cookies.get(COOKIE))
@@ -174,7 +210,72 @@ async def logout(request: Request, response: Response):
 
 @router.get("/api/me")
 async def me(u=Depends(current_user)):
-    return {"user": auth.public_user(u), "agent": tasks.agent_status()}
+    return {"user": auth.public_user(u), "agent": tasks.agent_status(uid(u)), "prefs": prefs.get(u)}
+
+
+# ---------------------------------------------------------------- 外观偏好 / 背景图
+@router.put("/api/me/prefs")
+async def put_prefs(body: dict = Body(...), u=Depends(current_user)):
+    return {"prefs": prefs.save(uid(u), body)}
+
+
+@router.post("/api/me/background")
+async def set_background(file: UploadFile = File(...), u=Depends(current_user)):
+    data = await file.read(BG_MAX + 1)
+    if len(data) > BG_MAX:
+        raise ApiError(413, "file_too_large", "背景图不能超过 4 MB")
+    if not _sniff_image(data[:16]):
+        raise ApiError(400, "not_image", "请选择 JPG / PNG / WebP 图片")
+    d = config.get().data_dir / "backgrounds"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{uid(u)}.bin").write_bytes(data)
+    db.run("UPDATE users SET bg_image=? WHERE id=?", (hashlib.sha256(data).hexdigest()[:10], uid(u)))
+    return {"prefs": prefs.get(auth.get_user(uid(u)))}
+
+
+@router.delete("/api/me/background")
+async def clear_background(u=Depends(current_user)):
+    db.run("UPDATE users SET bg_image=NULL WHERE id=?", (uid(u),))
+    (config.get().data_dir / "backgrounds" / f"{uid(u)}.bin").unlink(missing_ok=True)
+    return {"prefs": prefs.get(auth.get_user(uid(u)))}
+
+
+@router.get("/api/me/background")
+async def get_background(u=Depends(current_user)):
+    p = config.get().data_dir / "backgrounds" / f"{uid(u)}.bin"
+    if not u["bg_image"] or not p.exists():
+        raise ApiError(404, "no_background")
+    mime = _sniff_image(p.read_bytes()[:16]) or "application/octet-stream"
+    return FileResponse(p, media_type=mime, headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=31536000, immutable"})
+
+
+# ---------------------------------------------------------------- 邀请
+class InviteIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    hours: float = 24
+    max_uses: int = 1
+    room_id: int | None = None
+    note: str | None = Field(default=None, max_length=60)
+
+
+@router.get("/api/invites")
+async def list_invites(u=Depends(current_user)):
+    return {"invites": invites.list_for(u)}
+
+
+@router.post("/api/invites")
+async def create_invite(body: InviteIn, u=Depends(current_user)):
+    return invites.create(u, body.hours, body.max_uses, body.room_id, body.note)
+
+
+@router.delete("/api/invites/{invite_id}")
+async def revoke_invite(invite_id: int, u=Depends(current_user)):
+    return {"invite": invites.revoke(u, invite_id)}
+
+
+@router.get("/api/invite-info")
+async def invite_info(token: str = ""):
+    return invites.peek(token)
 
 
 @router.post("/api/me/password")
@@ -252,6 +353,7 @@ async def react(message_id: int, body: ReactionIn, u=Depends(current_user)):
 
 
 AVATAR_MAX = 2 * 1024 * 1024
+BG_MAX = 4 * 1024 * 1024
 
 
 def _sniff_image(head: bytes) -> str | None:
@@ -313,6 +415,17 @@ async def get_avatar(user_id: int, u=Depends(current_user)):
         raise ApiError(404, "no_avatar")
     mime = _sniff_image(p.read_bytes()[:16]) or "application/octet-stream"
     return FileResponse(p, media_type=mime, headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=31536000, immutable"})
+
+
+@router.get("/api/link-preview")
+async def link_preview(url: str = Query("", max_length=2000), u=Depends(current_user)):
+    return {"preview": await linkpreview.get_preview(uid(u), url)}
+
+
+@router.get("/api/link-preview/image/{key}")
+async def link_preview_image(key: str, u=Depends(current_user)):
+    p, mime = linkpreview.image_path(key)
+    return FileResponse(p, media_type=mime, headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=604800, immutable"})
 
 
 @router.post("/api/messages/{message_id}/transcribe")
@@ -404,6 +517,25 @@ async def room_mute(room_id: int, body: FlagIn, u=Depends(current_user)):
     return {"room": chat.set_member_flag(room_id, uid(u), "muted", body.value)}
 
 
+@router.post("/api/rooms/{room_id}/pin")
+async def room_pin(room_id: int, body: FlagIn, u=Depends(current_user)):
+    return {"room": chat.set_member_flag(room_id, uid(u), "pinned", body.value)}
+
+
+@router.post("/api/rooms/{room_id}/unread")
+async def room_mark_unread(room_id: int, body: FlagIn, u=Depends(current_user)):
+    return {"room": chat.set_member_flag(room_id, uid(u), "marked_unread", body.value)}
+
+
+class BgIn(BaseModel):
+    bg: str | None = None
+
+
+@router.put("/api/rooms/{room_id}/background")
+async def room_background(room_id: int, body: BgIn, u=Depends(current_user)):
+    return {"room": chat.set_room_bg(room_id, uid(u), body.bg)}
+
+
 @router.post("/api/rooms/{room_id}/read")
 async def room_read(room_id: int, body: ReadIn, u=Depends(current_user)):
     return chat.mark_read(room_id, uid(u), body.seq)
@@ -474,7 +606,7 @@ _AUDIO_MAGIC = {
 
 
 @router.post("/api/rooms/{room_id}/attachments")
-async def upload(room_id: int, file: UploadFile = File(...), duration_ms: int | None = Form(None), u=Depends(current_user)):
+async def upload(room_id: int, file: UploadFile = File(...), duration_ms: int | None = Form(None), waveform: str | None = Form(None), u=Depends(current_user)):
     chat.require_member(room_id, uid(u))
     path, rel = chat.new_attachment_path(room_id)
     limit = config.get().max_upload_mb * 1024 * 1024
@@ -505,7 +637,7 @@ async def upload(room_id: int, file: UploadFile = File(...), duration_ms: int | 
         duration_ms = None
     elif duration_ms is not None:
         duration_ms = max(0, min(int(duration_ms), 15 * 60 * 1000))
-    att = chat.register_attachment(room_id, uid(u), file.filename or "file", mime, size, rel, h.hexdigest(), duration_ms)
+    att = chat.register_attachment(room_id, uid(u), file.filename or "file", mime, size, rel, h.hexdigest(), duration_ms, chat.clean_waveform(waveform) if duration_ms is not None else None)
     return {"attachment": att}
 
 
@@ -622,7 +754,7 @@ async def export_room(room_id: int, format: str = "md", from_time: str | None = 
 # ---------------------------------------------------------------- Agent 接入（Owner）
 @router.get("/api/agent/status")
 async def agent_status(u=Depends(current_user)):
-    return {"status": tasks.agent_status()}
+    return {"status": tasks.agent_status(uid(u))}
 
 
 @router.get("/api/agent/credentials")
@@ -645,17 +777,8 @@ async def agent_revoke(cred_id: int, u=Depends(owner_user)):
 
 @router.post("/api/agent/selfcheck")
 async def agent_selfcheck(u=Depends(owner_user)):
-    """接入自检：在 Owner 的 Agent 私聊里发一条测试消息，触发一次完整的“领取任务→回复”闭环。"""
-    st = tasks.agent_status()
-    checks = [
-        {"name": "已创建凭证", "ok": st["state"] != "unconfigured"},
-        {"name": "Bridge 心跳在线", "ok": st["state"] == "online"},
-    ]
-    if not all(c["ok"] for c in checks):
-        return {"ok": False, "checks": checks}
-    rid = chat.ensure_agent_dm(uid(u))
-    msg, _ = chat.send_message(rid, uid(u), "【接入自检】请回复一句话确认你能收到这条消息。", f"selfcheck-{db.now()}")
-    return {"ok": True, "checks": checks, "room_id": rid, "message_id": msg["id"]}
+    from .runtime_api import start_selfcheck
+    return start_selfcheck(uid(u))
 
 
 @router.get("/agent-guide.md")
@@ -684,7 +807,7 @@ async def ws(websocket: WebSocket):
     user_id = user["id"]
     await hub.connect(user_id, websocket, security.token_hash(websocket.cookies.get(COOKIE)))
     try:
-        await websocket.send_json({"type": "hello", "user": auth.public_user(user), "agent": tasks.agent_status()})
+        await websocket.send_json({"type": "hello", "user": auth.public_user(user), "agent": tasks.agent_status(uid(user))})
         while True:
             data = await websocket.receive_json()
             if not isinstance(data, dict):

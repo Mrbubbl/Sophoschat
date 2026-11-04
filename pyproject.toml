@@ -4,24 +4,32 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aichat"
-version = "0.1.0"
-description = "SophosChat — 自部署的私人聊天软件，外部 Agent 维护按会话隔离的主题记忆"
+version = "0.4.0"
+description = "SophosChat — 私人聊天、服务端 Claude Agent SDK 与版本化文件交付"
 requires-python = ">=3.10"
 dependencies = [
-  "fastapi>=0.110",
-  "uvicorn[standard]>=0.27",
-  "python-multipart>=0.0.9",
+  "fastapi==0.162.0",
+  "uvicorn[standard]==0.54.0",
+  "python-multipart==0.0.33",
+  "claude-agent-sdk==0.2.176",
+  "mcp==2.3.0",
+  "cryptography==50.0.2",
+  "httpx==0.28.1",
+  "pywebpush==2.5.0",
+  "playwright==1.64.1",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "httpx", "playwright"]
+dev = ["pytest==9.2.0", "playwright==1.64.1", "websockets==17.4"]
+browser = ["playwright==1.64.1"]
 
 [project.scripts]
 aichat = "aichat.cli:main"
 aichat-bridge = "aichat_bridge.cli:main"
+aichat-agent = "aichat_agent.service:main"
 
 [tool.setuptools]
-packages = ["aichat", "aichat_bridge"]
+packages = ["aichat", "aichat_bridge", "aichat_agent"]
 
 [tool.setuptools.package-data]
 aichat = ["static/*", "AGENT_GUIDE.md"]

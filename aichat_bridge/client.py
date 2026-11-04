@@ -28,7 +28,7 @@ class Http:
         self.base = base_url.rstrip("/")
         self.timeout = timeout
 
-    def call(self, method: str, path: str, token: str | None = None, body: dict | None = None, params: dict | None = None, timeout: int | None = None):
+    def call(self, method: str, path: str, token: str | None = None, body: dict | None = None, params: dict | None = None, timeout: int | None = None, headers: dict | None = None):
         url = self.base + path
         if params:
             url += "?" + urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})
@@ -39,6 +39,8 @@ class Http:
             req.add_header("Content-Type", "application/json")
         if token:
             req.add_header("Authorization", f"Bearer {token}")
+        for key, value in (headers or {}).items():
+            req.add_header(key, value)
         try:
             with urllib.request.urlopen(req, timeout=timeout or self.timeout) as r:
                 raw = r.read()

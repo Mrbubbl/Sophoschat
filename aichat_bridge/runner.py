@@ -25,8 +25,9 @@ log = logging.getLogger("aichat.bridge")
 class LeaseKeeper:
     """工作较久时自动续租，避免任务被回收后重复处理。"""
 
-    def __init__(self, http: Http, cred: str, task_id: int, every: float):
+    def __init__(self, http: Http, cred: str, task_id: int, every: float, proof: str = ""):
         self.http, self.cred, self.task_id, self.every = http, cred, task_id, every
+        self.proof = proof
         self._stop = threading.Event()
         self.lost = False
         self._t = threading.Thread(target=self._run, daemon=True)
@@ -34,7 +35,7 @@ class LeaseKeeper:
     def _run(self):
         while not self._stop.wait(self.every):
             try:
-                self.http.call("POST", f"/api/agent/tasks/{self.task_id}/renew", self.cred)
+                self.http.call("POST", f"/api/agent/tasks/{self.task_id}/renew", self.cred, headers={"X-Task-Token": self.proof})
             except BridgeApiError as e:
                 if e.abandon:
                     self.lost = True
@@ -131,7 +132,7 @@ class Bridge:
         task, token = lease["task"], lease["task_token"]
         tid = task["id"]
         try:
-            with LeaseKeeper(self.http, self.cred, tid, self.lease_every) as keeper:
+            with LeaseKeeper(self.http, self.cred, tid, self.lease_every, token) as keeper:
                 if lease["purpose"] == "chat":
                     result_id = self._chat(tid, token)
                 else:
@@ -139,21 +140,21 @@ class Bridge:
                 if keeper.lost:
                     log.warning("任务 %s 的租约已丢失，放弃提交", tid)
                     return
-            self.http.call("POST", f"/api/agent/tasks/{tid}/complete", self.cred, {"result_message_id": result_id})
+            self.http.call("POST", f"/api/agent/tasks/{tid}/complete", self.cred, {"result_message_id": result_id}, headers={"X-Task-Token": token})
             self.last_error = None
         except BridgeApiError as e:
             if e.abandon:
                 log.warning("任务 %s 已不属于本 Bridge（%s），放弃", tid, e.code)
                 return
-            self._fail(tid, f"{e.code}: {e.message}")
+            self._fail(tid, f"{e.code}: {e.message}", token)
         except Exception as e:
             log.exception("任务 %s 失败", tid)
-            self._fail(tid, f"{type(e).__name__}: {e}")
+            self._fail(tid, f"{type(e).__name__}: {e}", token)
 
-    def _fail(self, tid: int, error: str) -> None:
+    def _fail(self, tid: int, error: str, token: str = "") -> None:
         self.last_error = error[:200]
         try:
-            self.http.call("POST", f"/api/agent/tasks/{tid}/fail", self.cred, {"error": error[:400], "retry": True})
+            self.http.call("POST", f"/api/agent/tasks/{tid}/fail", self.cred, {"error": error[:400], "retry": True}, headers={"X-Task-Token": token})
         except Exception as e:
             log.warning("上报失败也失败了：%s", e)
 

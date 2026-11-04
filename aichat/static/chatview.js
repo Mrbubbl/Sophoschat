@@ -2,10 +2,15 @@
 import { api, get, post, patch, del, qs } from './api.js';
 import { S, emit, on, room, roomTitle, roomSubtitle, otherHuman, agentUser, userById, agentStateText } from './store.js';
 import { buildEmojiPanel, QUICK } from './emoji.js';
-import { voiceSupported, startRecording, voicePlayer, recordingBar, MAX_MS } from './voice.js';
+import { voiceSupported, startRecording, voicePlayer, recordingBar, MAX_MS, stopAllVoice, setAutoNext } from './voice.js';
+import { paintBg, effectiveBg, openRoomBg } from './appearance.js';
+import { linkCards } from './linkcard.js';
+import { openLayer } from './nav.js';
+import { enter } from './motion.js';
 import { wsSend } from './ws.js';
 import { canCall, startCall } from './call.js';
-import { showTimes, $, h, icon, iconBtn, avatar, renderMarkdown, fmtTime, fmtFull, fmtDay, dayKey, fmtSize, toast, ask, copyText, debounce } from './util.js';
+import { artifactCard } from './artifacts.js';
+import { showTimes, $, h, icon, iconBtn, avatar, renderMarkdown, plainText, snippet, fmtTime, fmtFull, fmtDay, dayKey, fmtSize, toast, ask, copyText, debounce } from './util.js';
 
 const els = {};
 const drafts = new Map(); // room -> { text, reply }
@@ -21,7 +26,7 @@ const coarse = matchMedia('(pointer: coarse)').matches;
 
 // ------------------------------------------------------------------ 初始化
 export function initChat(container) {
-  els.empty = h('div', { class: 'empty-center' }, h('div', { class: 'empty-art' }, icon('bot', 40)), h('h2', null, 'SophosChat'), h('p', null, '选择一个聊天，或点左上角 ＋ 新建'));
+  els.empty = h('div', { class: 'empty-center' }, h('img', { class: 'empty-logo', src: '/static/icon.svg', alt: '', width: 72, height: 72 }), h('h2', null, 'SophosChat'), h('p', null, '选一个聊天开始'));
   els.head = h('header', { class: 'chat-head' });
   els.msgs = h('div', { class: 'msgs', id: 'msgs', tabindex: '0', role: 'log', 'aria-live': 'polite', 'aria-label': '消息列表' });
   els.toBottom = h('button', { class: 'to-bottom', type: 'button', hidden: true, onclick: () => (S.msgs.get(S.cur)?.hasAfter ? goLatest() : scrollToBottom(true)) });
@@ -38,6 +43,44 @@ export function initChat(container) {
   els.camFile = h('input', { type: 'file', accept: 'image/*', capture: 'environment', hidden: true, onchange: () => els.camFile.files[0] && uploadFile(els.camFile.files[0]) });
   els.send = h('button', { class: 'send', type: 'button', title: '发送', 'aria-label': '发送', disabled: true, onclick: onSendClick }, icon('send', 20));
   els.send.addEventListener('pointerdown', (e) => e.preventDefault());
+  // 按住说话：上滑锁定、左滑取消、轻点进入锁定模式
+  els.send.addEventListener('pointerdown', (e) => {
+    if (sendMode !== 'mic' || recUi || e.button > 0) return;
+    pressing = { x: e.clientX, y: e.clientY, t: performance.now() };
+    try {
+      els.send.setPointerCapture(e.pointerId);
+    } catch {}
+    startVoice('hold');
+  });
+  els.send.addEventListener('pointermove', (e) => {
+    if (!pressing || recMode !== 'hold' || !recUi) return;
+    const dx = e.clientX - pressing.x;
+    const dy = e.clientY - pressing.y;
+    recUi.setDrag(dx, dy);
+    if (dx < -110) {
+      pressing = null;
+      cancelVoice();
+      toast('已取消录音');
+    } else if (dy < -80) {
+      pressing = null;
+      lockVoice();
+    }
+  });
+  els.send.addEventListener('pointerup', () => {
+    if (!pressing) return;
+    const quick = performance.now() - pressing.t < 300;
+    pressing = null;
+    if (recMode !== 'hold') return;
+    if (!rec) return void (releasedEarly = true);
+    if (quick) lockVoice();
+    else finishVoice();
+  });
+  els.send.addEventListener('pointercancel', () => {
+    if (!pressing || recMode !== 'hold') return;
+    pressing = null;
+    if (rec) lockVoice();
+    else releasedEarly = true;
+  });
   els.send.addEventListener('mousedown', (e) => e.preventDefault());
   els.imgBtn = iconBtn('image', coarse ? '相册（长按拍照）' : '从相册选择图片', () => {}, 'narrowbtn');
   els.imgBtn.onclick = () => (els.imgHeld ? (els.imgHeld = false) : els.imgFile.click());
@@ -73,6 +116,8 @@ export function initChat(container) {
     checkMention();
     sendTyping();
   });
+  // 手机输入法：组合输入结束 / 光标移动 / 按键抬起时也检查一次，避免漏掉 @
+  for (const ev of ['compositionend', 'keyup', 'click']) els.input.addEventListener(ev, () => setTimeout(checkMention, 0));
   els.input.addEventListener('focus', () => hideEmoji());
   els.input.addEventListener('keydown', onKeydown);
   document.addEventListener('viewport-fit', () => document.activeElement === els.input && scrollToBottom(false));
@@ -101,6 +146,7 @@ export function initChat(container) {
   document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && markReadSoon());
   window.addEventListener('focus', markReadSoon);
 
+  on('reply-artifact', m => { if (m.room_id === S.cur) setReply(m); });
   on('msg:new', onNewMessage);
   on('msg:update', onUpdateMessage);
   on('typing', onTyping);
@@ -110,7 +156,11 @@ export function initChat(container) {
     refreshAgentUi();
     if (S.cur) $$chips();
   });
-  on('room:update', (r) => r.id === S.cur && (renderHead(), refreshAgentUi()));
+  on('room:update', (r) => r.id === S.cur && (renderHead(), refreshAgentUi(), paintRoomBg()));
+  on('prefs', (p) => {
+    setAutoNext(p.autoplay);
+    paintRoomBg();
+  });
   on('room:removed', (id) => id === S.cur && closeRoom());
   on('resync', resync);
   on('jump', jumpTo);
@@ -145,7 +195,10 @@ export async function openRoom(id, opts = {}) {
   newCount = 0;
   replyTo = null;
   pendingAtt = null;
+  if (recUi) cancelVoice();
+  stopSpeaking();
   renderHead();
+  paintRoomBg();
   restoreDraft();
   refreshAgentUi();
   emit('view');
@@ -222,6 +275,7 @@ function renderHead() {
         canCall(r) ? iconBtn('video', '视频通话', () => startCall(r.id, 'video')) : null,
         r.agent_in_room ? iconBtn('archive', '总结并存档', () => summarizeAndArchive()) : null,
         iconBtn('search', '在本会话中搜索', toggleSearch),
+        iconBtn('palette', '聊天背景', () => openRoomBg(r)),
         h('span', { class: 'date-wrap' }, iconBtn('calendar', '按日期跳转', () => (dateInput.showPicker ? dateInput.showPicker() : dateInput.click())), dateInput),
         iconBtn('panel', '回顾与主题记忆', () => emit('toggle-panel'))
       ),
@@ -271,11 +325,12 @@ function refreshAgentUi() {
   if (!r) return;
   const st = S.agent;
   if (r.agent_in_room && st && st.state !== 'online') {
+    const owner = S.me.role === 'owner';
     els.agentbar.hidden = false;
     els.agentbar.replaceChildren(
       h('span', { class: 'dot ' + st.state }),
-      h('span', { class: 'abtext' }, (st.state === 'unconfigured' ? 'Agent 还没有接入：' : 'Agent 当前离线：') + '消息会照常保存，Agent 上线后才会处理。'),
-      h('button', { class: 'link', type: 'button', onclick: () => emit('open-settings', 'agent') }, st.state === 'unconfigured' ? '去接入' : '查看状态')
+      h('span', { class: 'abtext' }, st.state === 'unconfigured' ? 'AI 还没连上' : 'AI 暂时离线'),
+      owner ? h('button', { class: 'link', type: 'button', onclick: () => emit('open-settings', 'agent') }, st.state === 'unconfigured' ? '去设置' : '查看') : null
     );
   } else els.agentbar.hidden = true;
 }
@@ -338,8 +393,22 @@ function messageRow(m, prev) {
         )
       );
     }
-    if (m.body) bubble.append(h('div', { class: 'body' }, renderMarkdown(m.body, { members: r.members })));
-    if (m.attachment) bubble.append(attachmentEl(m.attachment));
+    if (m.body) {
+      const bodyEl = h('div', { class: 'body' }, renderMarkdown(m.body, { members: r.members }));
+      bubble.append(bodyEl);
+      const long = m.body.length > 900 || m.body.split('\n').length > 22;
+      if (isAgent && long && !m.local && S.prefs?.collapse_long !== false) {
+        const open = expanded.has(m.id);
+        if (!open) bodyEl.classList.add('clamped');
+        bubble.append(h('button', { class: 'expand', type: 'button', onclick: () => (open ? expanded.delete(m.id) : expanded.add(m.id), replaceRow(m.id, m)) }, open ? '收起' : '展开全文'));
+      }
+    }
+    if (m.body && !m.local) {
+      const lc = linkCards(m, nearBottomStick);
+      if (lc) bubble.append(lc);
+    }
+    if (m.attachment) bubble.append(attachmentEl(m.attachment, m));
+    if (m.artifact) bubble.append(artifactCard(m.artifact));
   }
   const BLOCK = new Set(['DIV', 'P', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'H1', 'H2', 'H3', 'H4']);
   const tailBlock = (el) => {
@@ -352,8 +421,8 @@ function messageRow(m, prev) {
     }
   };
   // 时间显示在文字最后一行的右侧，不再单独占一行；代码块结尾、发送中/失败等情况仍放在下面
-  const bodyEl = !m.deleted && !m.local && m.body ? bubble.querySelector(':scope > .body') : null;
-  const slot = bodyEl ? tailBlock(bodyEl) : null;
+  const bodyEl = !m.deleted && !m.local && m.body ? bubble.querySelector(':scope > .body:not(.clamped)') : null;
+  const slot = bodyEl && !bubble.querySelector(':scope > .lcards, :scope > .artifact-card') ? tailBlock(bodyEl) : null;
   if (slot) {
     slot.append(h('span', { class: 'tpad' + (m.edited_at || m.starred ? ' wide' : '') }));
     bubble.classList.add('tinline');
@@ -391,8 +460,8 @@ function messageRow(m, prev) {
   return row;
 }
 
-function attachmentEl(a) {
-  if (a.is_voice) return voicePlayer(a);
+function attachmentEl(a, m) {
+  if (a.is_voice) return voicePlayer(a, { mine: !!m && m.sender_id === S.me.id });
   if (a.is_image) {
     return h('img', { class: 'att-img', src: a.url, alt: a.filename, loading: 'lazy', onclick: () => lightbox(a), onload: () => nearBottomStick() });
   }
@@ -400,7 +469,14 @@ function attachmentEl(a) {
 }
 
 function lightbox(a) {
-  const close = () => ov.remove();
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    ov.remove();
+    leave();
+  };
+  const leave = openLayer(close);
   const ov = h('div', { class: 'lightbox', onclick: close }, h('img', { src: a.url, alt: a.filename }), h('button', { class: 'lb-close', type: 'button', 'aria-label': '关闭', onclick: close }, icon('close', 22)));
   document.body.append(ov);
   const k = (e) => e.key === 'Escape' && (close(), document.removeEventListener('keydown', k));
@@ -413,11 +489,12 @@ function taskChip(m) {
   const r = room(S.cur);
   if (!t || m.deleted || !r || !r.agent_in_room) return null;
   const st = S.agent;
-  if (t.status === 'queued') {
-    if (st && st.state !== 'online') return h('div', { class: 'chip warn', dataset: { chip: m.id } }, `Agent ${agentStateText(st)}，消息已保存，上线后会处理`);
-    return h('div', { class: 'chip', dataset: { chip: m.id } }, h('span', { class: 'spin' }), '等待 Agent…');
+  if (t.status === 'queued' || t.status === 'leased') {
+    const label = t.status === 'queued' ? (S.agent && S.agent.state !== 'online' ? `Agent ${agentStateText(S.agent)}，请求已保存` : '已排队，等待执行资源') : (t.progress || 'Agent 处理中…');
+    return h('div', { class: 'chip', dataset: { chip: m.id } }, h('span', { class: 'spin' }), label,
+      S.me.role === 'owner' || t.initiator_id === S.me.id ? h('button', { class: 'link danger', type: 'button', onclick: async () => { try { onTask((await post(`/api/tasks/${t.id}/cancel`)).task); } catch(e) { toast(e.message, 'err'); } } }, '停止') : null);
   }
-  if (t.status === 'leased') return h('div', { class: 'chip', dataset: { chip: m.id } }, h('span', { class: 'spin' }), 'Agent 处理中…');
+  if (t.status === 'cancelled') return h('div', { class: 'chip' }, '任务已停止；已交付文件仍可使用');
   if (t.status === 'expired' || t.status === 'failed') {
     return h('div', { class: 'chip warn', dataset: { chip: m.id } }, t.status === 'expired' ? '未及时处理' : '处理失败', ' ', h('button', { class: 'link', type: 'button', onclick: () => retryTask(t) }, '重试'));
   }
@@ -483,6 +560,7 @@ function onNewMessage(m) {
   const rows = rowEls(m, prev);
   const firstPending = els.msgs.querySelector('.row.pending');
   rows.forEach((el) => (firstPending ? firstPending.before(el) : els.msgs.append(el)));
+  rows.forEach((el) => enter(el, 'rise'));
   if (stick) scrollToBottom(true);
   else {
     newCount += 1;
@@ -633,11 +711,12 @@ const markReadSoon = debounce(async () => {
   const last = [...st.list].reverse().find((m) => !m.local);
   const r = room(id);
   if (!last || !r) return;
-  if (last.seq <= r.last_read_seq && r.unread === 0) return;
+  if (last.seq <= r.last_read_seq && r.unread === 0 && !r.marked_unread) return;
   try {
     const res = await post(`/api/rooms/${id}/read`, { seq: last.seq });
     r.last_read_seq = res.last_read_seq;
     r.unread = 0;
+    r.marked_unread = false;
     emit('rooms:render');
   } catch {}
 }, 250);
@@ -673,32 +752,40 @@ function toggleSearch() {
     els.searchPane.hidden = true;
     return;
   }
-  const input = h('input', { type: 'search', placeholder: '搜索本会话的消息…', 'aria-label': '搜索本会话', class: 'inroom-q' });
-  const results = h('div', { class: 'results' }, h('div', { class: 'empty' }, '输入关键词后回车'));
+  const input = h('input', { type: 'search', enterkeyhint: 'search', autocomplete: 'off', placeholder: '搜索本会话的消息…', 'aria-label': '搜索本会话', class: 'inroom-q' });
+  const results = h('div', { class: 'results' }, h('div', { class: 'empty' }, '输入关键词，自动搜索'));
+  let seq = 0;
   const run = async () => {
     const q = input.value.trim();
-    if (!q) return;
+    if (!q) return void results.replaceChildren(h('div', { class: 'empty' }, '输入关键词，自动搜索'));
+    const my = ++seq;
     results.replaceChildren(h('div', { class: 'empty' }, '搜索中…'));
     try {
       const d = await get(`/api/rooms/${S.cur}/messages${qs({ q, limit: 50 })}`);
-      results.replaceChildren(...(d.messages.length ? d.messages.map(resultItem) : [h('div', { class: 'empty' }, '没有找到相关消息')]));
+      if (my !== seq) return; // 已有更新的搜索
+      results.replaceChildren(...(d.messages.length ? d.messages.map((m) => resultItem(m, q)) : [h('div', { class: 'empty' }, `没有找到包含「${q}」的消息`)]));
     } catch (e) {
-      results.replaceChildren(h('div', { class: 'empty' }, e.message));
+      if (my === seq) results.replaceChildren(h('div', { class: 'empty' }, e.message));
     }
   };
+  let composing = false;
+  const live = debounce(() => !composing && run(), 350);
+  input.addEventListener('compositionstart', () => (composing = true));
+  input.addEventListener('compositionend', () => ((composing = false), live()));
+  input.addEventListener('input', () => !composing && live());
   input.addEventListener('keydown', (e) => e.key === 'Enter' && !e.isComposing && run());
   els.searchPane.replaceChildren(h('div', { class: 'sp-head' }, input, iconBtn('close', '关闭搜索', () => (els.searchPane.hidden = true))), results);
   els.searchPane.hidden = false;
   input.focus();
 }
 
-export function resultItem(m) {
+export function resultItem(m, q = '') {
   const who = userById(m.sender_id);
   return h(
     'button',
     { class: 'result', type: 'button', onclick: () => emit('jump', { room_id: m.room_id, seq: m.seq, id: m.id }) },
     h('div', { class: 'r-top' }, h('b', null, who.display_name), h('time', null, `${fmtDay(m.created_at)} ${fmtTime(m.created_at)}`)),
-    h('div', { class: 'r-body' }, m.body || '[附件]')
+    h('div', { class: 'r-body' }, m.body ? snippet(m.body, q) : '[附件]')
   );
 }
 
@@ -802,6 +889,7 @@ function openMenu(anchor, m, pt) {
   const items = [
     { label: '引用', icon: 'reply', fn: () => (setReply(m), els.input.focus()) },
     { label: '复制', icon: 'copy', fn: () => copyText(m.body || m.attachment?.transcript || ''), skip: !m.body && !m.attachment?.transcript },
+    { label: speakingId === m.id ? '停止朗读' : '朗读', icon: 'speaker', fn: () => speak(m), skip: !m.body || !('speechSynthesis' in window) },
     { label: '转文字', icon: 'mic', fn: () => transcribe(m), skip: !(m.attachment?.is_voice && !m.attachment.transcript && room(m.room_id)?.agent_in_room) },
     { label: m.starred ? '取消收藏' : '收藏', icon: 'star', fn: () => toggleStar(m) },
     { label: '编辑', icon: 'edit', fn: () => startEdit(m), skip: !mine || !m.body },
@@ -953,29 +1041,91 @@ function onTyping(d) {
   typingTimer = setTimeout(hideTyping, 5000);
 }
 
-// ------------------------------------------------------------------ 语音
+// ------------------------------------------------------------------ 语音（录音）
 let rec = null;
 let recUi = null;
-async function startVoice() {
-  if (rec || !S.cur) return;
-  const ctrl = await startRecording((ms) => recUi && recUi.setTime(ms));
-  if (!ctrl) return;
-  rec = ctrl;
+let recMode = ''; // hold | locked | review
+let pressing = null;
+let releasedEarly = false;
+let reviewRes = null;
+let reviewUrl = null;
+
+async function startVoice(mode = 'locked') {
+  if (rec || recUi || !S.cur) return;
+  releasedEarly = false;
+  stopAllVoice();
+  stopSpeaking();
   hideEmoji();
-  recUi = recordingBar({ onCancel: cancelVoice, onSend: () => finishVoice() });
-  els.rowMain.hidden = true;
+  recUi = recordingBar({ onCancel: cancelVoice, onSend: () => finishVoice(), onPauseToggle: togglePause, onStop: reviewVoice });
+  recMode = mode;
+  recUi.setMode(mode);
   els.rowMain.after(recUi.el);
+  if (mode === 'hold') {
+    els.composer.classList.add('rec-hold');
+    recUi.el.style.top = els.rowMain.offsetTop + 'px';
+    recUi.el.style.height = els.rowMain.offsetHeight + 'px';
+  } else els.rowMain.hidden = true;
+  const ui = recUi;
+  const ctrl = await startRecording({ onTick: (ms) => ui.setTime(ms), onLevel: (v) => ui.level(v) });
+  if (!ctrl) return closeRecUi();
+  if (recUi !== ui) return ctrl.cancel(); // 等待麦克风权限时已经取消
+  rec = ctrl;
+  navigator.vibrate && navigator.vibrate(15);
   ctrl.onLimit = () => {
     toast('已达到最长录音时间，自动发送');
     finishVoice();
   };
+  if (recMode === 'hold' && releasedEarly) lockVoice();
+}
+
+function lockVoice() {
+  if (!recUi) return;
+  recMode = 'locked';
+  recUi.setMode('locked');
+  recUi.setDrag(0, 0);
+  recUi.el.style.top = recUi.el.style.height = '';
+  els.composer.classList.remove('rec-hold');
+  els.rowMain.hidden = true;
+}
+
+function togglePause() {
+  if (!rec || !recUi) return;
+  if (rec.paused) {
+    rec.resume();
+    recUi.setPaused(false);
+  } else if (rec.pause()) recUi.setPaused(true);
+  else toast('这个浏览器不支持暂停录音');
+}
+
+async function reviewVoice() {
+  if (!rec || !recUi) return;
+  const ctrl = rec;
+  rec = null;
+  const res = await ctrl.stop();
+  if (!res || res.tooShort) {
+    closeRecUi();
+    if (res && res.tooShort) toast('说话时间太短');
+    return;
+  }
+  reviewRes = res;
+  reviewUrl = URL.createObjectURL(res.blob);
+  recMode = 'review';
+  recUi.setMode('review');
+  recUi.showReview(voicePlayer({ id: 0, url: reviewUrl, duration_ms: res.duration_ms, waveform: res.waveform }, { mine: true }));
 }
 
 function closeRecUi() {
   recUi && recUi.el.remove();
   recUi = null;
   rec = null;
+  recMode = '';
+  pressing = null;
+  reviewRes = null;
+  if (reviewUrl) URL.revokeObjectURL(reviewUrl);
+  reviewUrl = null;
+  stopAllVoice();
   els.rowMain.hidden = false;
+  els.composer.classList.remove('rec-hold');
 }
 
 function cancelVoice() {
@@ -984,12 +1134,16 @@ function cancelVoice() {
 }
 
 async function finishVoice() {
-  if (!rec) return;
-  const ctrl = rec;
-  const res = await ctrl.stop();
+  let res = reviewRes;
+  if (!res) {
+    if (!rec) return;
+    const ctrl = rec;
+    rec = null;
+    res = await ctrl.stop();
+  }
   closeRecUi();
   if (!res) return;
-  if (res.tooShort) return toast('说话时间太短');
+  if (res.tooShort) return toast('说话时间太短，按住久一点');
   const roomId = S.cur;
   uploading = true;
   renderAttBar();
@@ -997,6 +1151,7 @@ async function finishVoice() {
     const fd = new FormData();
     fd.append('file', res.blob, `voice-${Date.now()}.${res.ext}`);
     fd.append('duration_ms', String(res.duration_ms));
+    if (res.waveform && res.waveform.length) fd.append('waveform', res.waveform.join(','));
     const { attachment } = await api('POST', `/api/rooms/${roomId}/attachments`, fd);
     pendingAtt = attachment;
   } catch (e) {
@@ -1005,6 +1160,50 @@ async function finishVoice() {
   uploading = false;
   renderAttBar();
   if (pendingAtt && S.cur === roomId) await send();
+}
+
+// ------------------------------------------------------------------ 朗读（浏览器自带语音合成，不经过服务器）
+let speakingId = null;
+function stopSpeaking() {
+  if (speakingId != null && 'speechSynthesis' in window) window.speechSynthesis.cancel();
+  speakingId = null;
+}
+function speak(m) {
+  const syn = window.speechSynthesis;
+  if (!syn) return toast('这个浏览器不支持朗读', 'err');
+  if (speakingId === m.id) return stopSpeaking();
+  syn.cancel();
+  stopAllVoice();
+  const text = plainText(m.body);
+  if (!text) return;
+  const zh = (text.match(/[\u4e00-\u9fff]/g) || []).length > text.length * 0.15;
+  const voices = syn.getVoices();
+  const voice = voices.find((v) => (zh ? /^zh(-|_)?(CN|Hans)?/i.test(v.lang) : /^en/i.test(v.lang)) && v.localService) || voices.find((v) => (zh ? /^zh/i : /^en/i).test(v.lang));
+  // 有些浏览器一次读太长会中断：按句子切成小段排队
+  const parts = text.match(/[^。！？!?.\n]+[。！？!?.]?|\n+/g)?.map((x) => x.trim()).filter(Boolean) || [text];
+  const chunks = [];
+  for (const p of parts) {
+    const last = chunks[chunks.length - 1];
+    if (last && last.length + p.length < 160) chunks[chunks.length - 1] = last + ' ' + p;
+    else chunks.push(p);
+  }
+  speakingId = m.id;
+  chunks.forEach((c, i) => {
+    const u = new SpeechSynthesisUtterance(c);
+    u.lang = zh ? 'zh-CN' : 'en-US';
+    if (voice) u.voice = voice;
+    u.rate = 1.05;
+    if (i === chunks.length - 1) u.onend = () => speakingId === m.id && (speakingId = null);
+    u.onerror = () => speakingId === m.id && (speakingId = null);
+    syn.speak(u);
+  });
+  toast('正在朗读，长按消息可停止');
+}
+
+// ------------------------------------------------------------------ 聊天背景
+function paintRoomBg() {
+  const r = room(S.cur);
+  if (r && els.wrap) paintBg(els.wrap, effectiveBg(r));
 }
 
 // ------------------------------------------------------------------ 表情回应
@@ -1031,8 +1230,13 @@ function applyReactions(roomId, mid, reactions) {
   const st = S.msgs.get(roomId);
   const m = st?.list.find((x) => x.id === mid);
   if (!m) return;
+  const had = new Set((m.reactions || []).map((r) => r.emoji));
   m.reactions = reactions;
-  if (roomId === S.cur) replaceRow(m.id, m);
+  if (roomId === S.cur) {
+    replaceRow(m.id, m);
+    const row = els.msgs.querySelector(`[data-mid="${m.id}"]`);
+    for (const r of reactions) if (!had.has(r.emoji)) enter([...(row?.querySelectorAll('.react') || [])].find((b) => b.dataset.emoji === r.emoji), 'bounce');
+  }
 }
 
 function onReaction(d) {
@@ -1046,13 +1250,14 @@ function reactionsEl(m) {
     { class: 'reacts' },
     m.reactions.map((r) => {
       const mine = r.user_ids.includes(S.me.id);
-      return h('button', { type: 'button', class: 'react' + (mine ? ' mine' : ''), title: r.user_ids.map((i) => userById(i).display_name).join('、'), onclick: () => react(m, r.emoji) }, r.emoji, r.user_ids.length > 1 ? h('small', null, String(r.user_ids.length)) : null);
+      return h('button', { type: 'button', class: 'react' + (mine ? ' mine' : ''), dataset: { emoji: r.emoji }, title: r.user_ids.map((i) => userById(i).display_name).join('、'), onclick: () => react(m, r.emoji) }, r.emoji, r.user_ids.length > 1 ? h('small', null, String(r.user_ids.length)) : null);
     })
   );
 }
 
 // ------------------------------------------------------------------ 输入框
 let sendMode = '';
+const expanded = new Set(); // 已展开的长消息
 function updateSendState() {
   const has = !!els.input.value.trim() || !!pendingAtt;
   const mode = has ? 'send' : voiceSupported() ? 'mic' : 'idle';
@@ -1060,6 +1265,7 @@ function updateSendState() {
   if (mode !== sendMode) {
     sendMode = mode;
     els.send.replaceChildren(icon(mode === 'mic' ? 'mic' : 'send', 20));
+    enter(els.send.firstChild, 'bounce');
     els.send.classList.toggle('mic', mode === 'mic');
     const label = mode === 'mic' ? '录制语音' : '发送';
     els.send.title = label;
@@ -1067,8 +1273,11 @@ function updateSendState() {
   }
 }
 
-function onSendClick() {
-  if (sendMode === 'mic') return startVoice();
+function onSendClick(e) {
+  if (sendMode === 'mic') {
+    if (e && e.detail === 0) startVoice('locked'); // 键盘操作
+    return;
+  }
   send();
 }
 
@@ -1175,8 +1384,8 @@ let mentionList = [];
 function checkMention() {
   const r = room(S.cur);
   if (!r) return;
-  const pos = els.input.selectionStart;
-  const m = els.input.value.slice(0, pos).match(/(?:^|\s)@([A-Za-z0-9_\-]*)$/);
+  const pos = els.input.selectionStart ?? els.input.value.length;
+  const m = els.input.value.slice(0, pos).match(/(?:^|[^A-Za-z0-9_@])@([A-Za-z0-9_\-一-鿿]*)$/);
   if (!m) {
     els.mention.hidden = true;
     return;
@@ -1209,7 +1418,7 @@ function renderMention() {
 
 function pickMention(u) {
   const pos = els.input.selectionStart;
-  const before = els.input.value.slice(0, pos).replace(/@[A-Za-z0-9_\-]*$/, '@' + u.username + ' ');
+  const before = els.input.value.slice(0, pos).replace(/@[A-Za-z0-9_\-一-鿿]*$/, '@' + u.username + ' ');
   els.input.value = before + els.input.value.slice(pos);
   els.input.setSelectionRange(before.length, before.length);
   els.mention.hidden = true;
@@ -1279,7 +1488,9 @@ async function send() {
   };
   st.list.push(m);
   const prev = st.list[st.list.length - 2] || null;
-  els.msgs.append(...rowEls(m, prev));
+  const sentRows = rowEls(m, prev);
+  els.msgs.append(...sentRows);
+  sentRows.forEach((el) => enter(el, 'rise'));
   els.input.value = '';
   replyTo = null;
   pendingAtt = null;

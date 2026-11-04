@@ -1,5 +1,9 @@
-fastapi>=0.110
-uvicorn[standard]>=0.27
-python-multipart>=0.0.9
-# 开发/测试：pytest httpx playwright websockets
-pywebpush>=2.0
+fastapi==0.162.0
+uvicorn[standard]==0.54.0
+python-multipart==0.0.33
+claude-agent-sdk==0.2.176
+mcp==2.3.0
+cryptography==50.0.2
+httpx==0.28.1
+pywebpush==2.5.0
+playwright==1.64.1

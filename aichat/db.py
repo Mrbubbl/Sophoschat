@@ -261,9 +261,38 @@ CREATE TABLE IF NOT EXISTS kv(
   key TEXT PRIMARY KEY,
   value TEXT
 );
+CREATE TABLE IF NOT EXISTS invites(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  token_hash TEXT NOT NULL UNIQUE,
+  created_by INTEGER NOT NULL REFERENCES users(id),
+  room_id INTEGER REFERENCES rooms(id),
+  note TEXT,
+  max_uses INTEGER NOT NULL DEFAULT 1,
+  uses INTEGER NOT NULL DEFAULT 0,
+  expires_at TEXT NOT NULL,
+  revoked_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS link_previews(
+  key TEXT PRIMARY KEY,
+  url TEXT NOT NULL,
+  title TEXT,
+  description TEXT,
+  site TEXT,
+  ok INTEGER NOT NULL DEFAULT 0,
+  image_ok INTEGER NOT NULL DEFAULT 0,
+  fetched_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS invite_uses(
+  invite_id INTEGER NOT NULL REFERENCES invites(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(invite_id, user_id)
+);
 """
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 8
 
 # 旧库升级：只做加列，不删不改已有数据
 _ADD_COLUMNS = [
@@ -273,6 +302,24 @@ _ADD_COLUMNS = [
     ("attachments", "transcript", "TEXT"),
     ("users", "avatar", "TEXT"),
     ("users", "can_add_users", "INTEGER NOT NULL DEFAULT 0"),
+    ("agent_tasks", "lease_generation", "TEXT"),
+    ("agent_tasks", "initiator_id", "INTEGER"),
+    ("agent_tasks", "profile", "TEXT NOT NULL DEFAULT 'chat'"),
+    ("agent_tasks", "progress", "TEXT"),
+    ("agent_tasks", "session_key", "TEXT"),
+    ("agent_tasks", "scope_hash", "TEXT"),
+    ("agent_tasks", "config_revision", "INTEGER"),
+    ("agent_tasks", "base_version_id", "INTEGER"),
+    ("agent_tasks", "parent_task_id", "INTEGER"),
+    ("agent_tasks", "not_before", "TEXT"),
+    ("messages", "artifact_version_id", "INTEGER"),
+    ("messages", "is_test", "INTEGER NOT NULL DEFAULT 0"),
+    ("room_members", "pinned", "INTEGER NOT NULL DEFAULT 0"),
+    ("room_members", "marked_unread", "INTEGER NOT NULL DEFAULT 0"),
+    ("room_members", "bg", "TEXT"),
+    ("users", "prefs", "TEXT"),
+    ("users", "bg_image", "TEXT"),
+    ("attachments", "waveform", "TEXT"),
 ]
 
 
@@ -281,6 +328,12 @@ def _migrate(c: sqlite3.Connection) -> None:
         cols = {r[1] for r in c.execute(f"PRAGMA table_info({table})")}
         if col not in cols:
             c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+    c.execute("UPDATE agent_tasks SET profile='memory' WHERE kind='consolidate'")
+    c.execute("UPDATE agent_tasks SET initiator_id=(SELECT sender_id FROM messages WHERE id=trigger_message_id) WHERE kind='chat' AND initiator_id IS NULL")
+    # Legacy task kinds remain on disk so upgrades do not rebuild a live queue.
+    # profile is the authoritative SDK purpose: chat / delivery / memory.
+    from .schema_v7 import EXTRA_SCHEMA
+    c.executescript(EXTRA_SCHEMA)
     c.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
 
