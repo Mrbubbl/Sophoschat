@@ -126,6 +126,9 @@ def ser_attachment(a) -> dict | None:
         "is_voice": a["mime"] in AUDIO_MIMES and a["duration_ms"] is not None,
         "duration_ms": a["duration_ms"],
         "transcript": a["transcript"],
+        "transcription_status": "done" if a["transcript"] else a["transcription_state"],
+        "transcription_error": a["transcription_error"],
+        "transcription_engine": a["transcription_engine"],
         "waveform": [int(x) for x in a["waveform"].split(",")] if "waveform" in a.keys() and a["waveform"] else None,
         "url": f"/api/attachments/{a['id']}",
     }
@@ -521,7 +524,7 @@ def purge_message(m, actor: str, actor_id: int | None = None) -> None:
     db.run("DELETE FROM stars WHERE message_id=?", (mid,))
     db.run("DELETE FROM reactions WHERE message_id=?", (mid,))
     for a in db.all("SELECT * FROM attachments WHERE message_id=? AND deleted_at IS NULL", (mid,)):
-        db.run("UPDATE attachments SET deleted_at=? WHERE id=?", (db.now(), a["id"]))
+        db.run("UPDATE attachments SET deleted_at=?,transcript=NULL,transcription_state=NULL,transcription_error=NULL,transcription_generation=NULL WHERE id=?", (db.now(), a["id"]))
         p = config.get().data_dir / a["path"]
         db.on_commit(lambda p=p: p.unlink(missing_ok=True))
     add_event(m["room_id"], "message.deleted", mid, m["version"], actor_id)
@@ -670,18 +673,27 @@ def unread_total(user_id: int) -> int:
     return int(r["n"])
 
 
-def set_transcript(att_id: int, room_id: int, text: str) -> dict:
-    """Agent 写回语音转写：只能写本 Room 里、已发出的语音附件。"""
+def set_transcript(att_id: int, room_id: int, text: str, *, engine: str = "legacy") -> dict:
+    """Persist derived text without replacing the original voice or human body."""
     text = (text or "").strip()[:20000]
     with db.tx():
         a = db.one("SELECT * FROM attachments WHERE id=? AND room_id=? AND deleted_at IS NULL AND message_id IS NOT NULL", (att_id, room_id))
         if not a or a["mime"] not in AUDIO_MIMES or a["duration_ms"] is None:
             raise ApiError(404, "attachment_not_found")
-        db.run("UPDATE attachments SET transcript=? WHERE id=?", (text or None, att_id))
         m = db.one("SELECT * FROM messages WHERE id=?", (a["message_id"],))
-        if m["deleted_at"]:
+        if not m or m["deleted_at"]:
             raise ApiError(404, "attachment_not_found")
-        _notify(room_id, {"type": "message.updated", "message": ser_message(m)})
+        if not text:
+            raise ApiError(422, "asr_no_speech", "未识别到清晰语音")
+        db.run("UPDATE attachments SET transcript=?,transcription_state='done',transcription_error=NULL,transcription_engine=?,transcription_updated_at=? WHERE id=?", (text, engine, db.now(), att_id))
+        if a["transcript"] != text:
+            ver = m["version"] + 1
+            db.run("UPDATE messages SET version=? WHERE id=?", (ver, m["id"]))
+            db.run("INSERT INTO message_versions(message_id,version,body,created_at) VALUES(?,?,?,?)", (m["id"], ver, m["body"], db.now()))
+            add_event(room_id, "message.edited", m["id"], ver)
+            memory.on_message_edited(room_id, m["id"], ver)
+            db.run("UPDATE agent_tasks SET trigger_message_version=? WHERE trigger_message_id=? AND status='queued'", (ver, m["id"]))
+        _notify(room_id, {"type": "message.updated", "message": ser_message(db.one("SELECT * FROM messages WHERE id=?", (m["id"],)))})
     return {"ok": True}
 
 

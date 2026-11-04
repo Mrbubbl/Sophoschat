@@ -66,7 +66,7 @@ def _msg_line(m: dict, names: dict) -> str:
     if a:
         att = f" [附件:{a['filename']}]"
         if a.get("is_voice"):
-            att = f" [语音 {round((a.get('duration_ms') or 0) / 1000)} 秒" + (f"，转写：{a['transcript']}" if a.get("transcript") else "，尚未转写") + "]"
+            att = f" [语音 {round((a.get('duration_ms') or 0) / 1000)} 秒，附件 #{a['id']}" + (f"，机器转写（可能有误）：{a['transcript']}" if a.get("transcript") else f"，尚未转写，状态：{a.get('transcription_status') or 'idle'}，错误：{a.get('transcription_error') or '无'}；不得猜测内容") + "]"
     reply = f" (回复 #{m['reply_to']})" if m.get("reply_to") else ""
     return f"#{m['id']} v{m['version']} {m['created_at'][:16]} {who}({tag}, id={m['sender_id']}){reply}: {body}{att}"
 

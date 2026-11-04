@@ -2,7 +2,7 @@
 import { api, get, post, patch, del, qs } from './api.js';
 import { S, emit, on, room, roomTitle, roomSubtitle, otherHuman, agentUser, userById, agentStateText } from './store.js';
 import { buildEmojiPanel, QUICK } from './emoji.js';
-import { voiceSupported, startRecording, voicePlayer, recordingBar, MAX_MS, stopAllVoice, setAutoNext } from './voice.js';
+import { voiceSupported, startRecording, voicePlayer, recordingBar, MAX_MS, stopAllVoice, setAutoNext, transcriptHidden, toggleTranscript } from './voice.js';
 import { paintBg, effectiveBg, openRoomBg } from './appearance.js';
 import { linkCards } from './linkcard.js';
 import { openLayer } from './nav.js';
@@ -890,7 +890,8 @@ function openMenu(anchor, m, pt) {
     { label: '引用', icon: 'reply', fn: () => (setReply(m), els.input.focus()) },
     { label: '复制', icon: 'copy', fn: () => copyText(m.body || m.attachment?.transcript || ''), skip: !m.body && !m.attachment?.transcript },
     { label: speakingId === m.id ? '停止朗读' : '朗读', icon: 'speaker', fn: () => speak(m), skip: !m.body || !('speechSynthesis' in window) },
-    { label: '转文字', icon: 'mic', fn: () => transcribe(m), skip: !(m.attachment?.is_voice && !m.attachment.transcript && room(m.room_id)?.agent_in_room) },
+    { label: m.attachment?.transcription_status === 'failed' ? '重试转文字' : '转文字', icon: 'mic', fn: () => transcribe(m), skip: !(m.attachment?.is_voice && !m.attachment.transcript && !['queued', 'running'].includes(m.attachment.transcription_status)) || !!m.local },
+    { label: transcriptHidden(m.attachment?.id) ? '显示文字' : '隐藏文字', icon: 'mic', fn: () => { toggleTranscript(m.attachment.id); onUpdateMessage({ ...m }); }, skip: !m.attachment?.transcript },
     { label: m.starred ? '取消收藏' : '收藏', icon: 'star', fn: () => toggleStar(m) },
     { label: '编辑', icon: 'edit', fn: () => startEdit(m), skip: !mine || !m.body },
     { label: '删除', icon: 'trash', fn: () => deleteMessage(m), danger: true, skip: !mine },
@@ -1207,12 +1208,28 @@ function paintRoomBg() {
 }
 
 // ------------------------------------------------------------------ 表情回应
+const transcriptionRequests = new Set();
 async function transcribe(m) {
+  if (transcriptionRequests.has(m.id)) return;
+  transcriptionRequests.add(m.id);
   try {
-    await api('POST', `/api/messages/${m.id}/transcribe`);
-    toast('正在转文字…完成后会显示在语音下面');
+    let { transcription: t } = await api('POST', `/api/messages/${m.id}/transcribe`);
+    onUpdateMessage({ ...m, attachment: { ...m.attachment, transcription_status: t.status, transcription_error: t.error, transcript: t.text } });
+    if (t.status !== 'done') toast('正在转文字，完成后显示在语音下方');
+    // WebSocket updates other devices; polling also handles a missed update.
+    for (let i = 0; i < 180 && ['queued', 'running'].includes(t.status) && S.cur === m.room_id; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      ({ transcription: t } = await get(`/api/messages/${m.id}/transcription`));
+    }
+    if (S.cur === m.room_id) {
+      const d = await get(`/api/rooms/${m.room_id}/messages?after_seq=${m.seq - 1}&limit=1`);
+      const fresh = d.messages.find((x) => x.id === m.id);
+      if (fresh) onUpdateMessage(fresh);
+    }
   } catch (e) {
     toast(e.message, 'err');
+  } finally {
+    transcriptionRequests.delete(m.id);
   }
 }
 

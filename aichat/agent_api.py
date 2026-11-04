@@ -116,7 +116,8 @@ TOOLS = [
     {"name": "messages.list", "method": "GET", "path": "/api/tools/messages", "purposes": ["chat", "consolidate"], "desc": "分页/搜索/定位读取本 Room 的原文"},
     {"name": "messages.thread", "method": "GET", "path": "/api/tools/messages/{id}/thread", "purposes": ["chat", "consolidate"], "desc": "回复链与附近原文"},
     {"name": "attachments.get", "method": "GET", "path": "/api/tools/attachments/{id}", "purposes": ["chat"], "desc": "读取本 Room 的图片/语音原文件"},
-    {"name": "attachments.transcript", "method": "PUT", "path": "/api/tools/attachments/{id}/transcript", "purposes": ["chat"], "desc": "写回语音转写文字"},
+    {"name": "attachments.transcribe", "method": "POST", "path": "/api/tools/attachments/{id}/transcribe", "purposes": ["chat"], "desc": "请求服务器本地语音识别"},
+    {"name": "attachments.transcription", "method": "GET", "path": "/api/tools/attachments/{id}/transcription", "purposes": ["chat"], "desc": "读取语音识别进度和文字"},
     {"name": "messages.send", "method": "POST", "path": "/api/tools/messages", "purposes": ["chat"], "desc": "以 Agent 身份发言，带幂等键"},
     {"name": "topics.list", "method": "GET", "path": "/api/tools/topics", "purposes": ["chat", "consolidate"], "desc": "列出/检索稳定主题"},
     {"name": "topics.get", "method": "GET", "path": "/api/tools/topics/{id}", "purposes": ["chat", "consolidate"], "desc": "主题详情、条目、变化历史"},
@@ -249,7 +250,24 @@ class TranscriptIn(BaseModel):
 
 @router.put("/api/tools/attachments/{att_id}/transcript")
 async def tool_transcript(att_id: int, body: TranscriptIn, ctx: Ctx = Depends(chat_ctx)):
+    if not _cfg.get().allow_legacy_agent:
+        raise ApiError(403, "local_asr_required", "请调用本地语音识别工具，不得生成或猜测转写文字")
+    _tool_attachment(att_id, ctx)
     return chat.set_transcript(att_id, ctx.room_id, body.text)
+
+
+@router.post("/api/tools/attachments/{att_id}/transcribe")
+async def tool_transcribe(att_id: int, ctx: Ctx = Depends(chat_ctx)):
+    from . import transcription
+    a, _ = _tool_attachment(att_id, ctx)
+    return {"transcription": transcription.for_message(a["message_id"], ctx.agent_id, request=True)}
+
+
+@router.get("/api/tools/attachments/{att_id}/transcription")
+async def tool_transcription(att_id: int, ctx: Ctx = Depends(chat_ctx)):
+    from . import transcription
+    a, _ = _tool_attachment(att_id, ctx)
+    return {"transcription": transcription.for_message(a["message_id"], ctx.agent_id)}
 
 
 @router.get("/api/tools/topics")

@@ -361,7 +361,12 @@ class _SttAdapter(CallbackAdapter):
         return "明天下午三点开会"
 
 
-def test_transcribe_voice_writes_back_without_chat_message(live):
+def test_transcribe_voice_writes_back_without_chat_message(live, monkeypatch):
+    from aichat import transcription
+    monkeypatch.setattr(transcription, 'availability', lambda: {'error': None})
+    async def recognize(self, a):
+        return {'text': '明天下午三点开会'}
+    monkeypatch.setattr(transcription.Worker, 'recognize', recognize)
     att = _upload(live.a, live.agent_dm, "voice-1.webm", WEBM, "audio/webm", duration_ms="3000")
     m = live.say(live.a, live.agent_dm, "", attachment_id=att["id"])
     # 私聊 Agent 时语音本身会触发一次聊天任务：先让它处理掉
@@ -371,11 +376,9 @@ def test_transcribe_voice_writes_back_without_chat_message(live):
     assert br.run_once(wait=3) is True
     n_before = len(live.msgs(live.a, live.agent_dm))
     r = live.a.post(f"/api/messages/{m['id']}/transcribe")
-    assert r.status_code == 200 and r.json()["task"]["status"] == "queued"
-    # 重复点击不会重复建任务
-    assert live.a.post(f"/api/messages/{m['id']}/transcribe").json()["task"]["id"] == r.json()["task"]["id"]
-    assert br.run_once(wait=3) is True
-    assert ad.stt_calls and ad.stt_calls[0][1].startswith("voice-")
+    assert r.status_code == 200 and r.json()['transcription']['status'] == 'done'
+    assert live.a.post(f"/api/messages/{m['id']}/transcribe").json()['transcription']['text'] == '明天下午三点开会'
+    assert not ad.stt_calls  # Recognition belongs to the local ASR worker, never the chat adapter.
     after = live.msgs(live.a, live.agent_dm)
     assert len(after) == n_before  # 没有新的聊天消息
     voice = next(x for x in after if x["id"] == m["id"])

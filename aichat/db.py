@@ -292,7 +292,7 @@ CREATE TABLE IF NOT EXISTS invite_uses(
 );
 """
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 # 旧库升级：只做加列，不删不改已有数据
 _ADD_COLUMNS = [
@@ -320,6 +320,11 @@ _ADD_COLUMNS = [
     ("users", "prefs", "TEXT"),
     ("users", "bg_image", "TEXT"),
     ("attachments", "waveform", "TEXT"),
+    ("attachments", "transcription_state", "TEXT"),
+    ("attachments", "transcription_error", "TEXT"),
+    ("attachments", "transcription_engine", "TEXT"),
+    ("attachments", "transcription_generation", "TEXT"),
+    ("attachments", "transcription_updated_at", "TEXT"),
 ]
 
 

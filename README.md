@@ -2,7 +2,7 @@
 
 面向双人和小群组的自部署聊天应用。AI 成员在被 @、私聊或收到定向回复时参与讨论，也能在聊天中交付 Markdown 文档和自包含 HTML 网页，保留改稿版本。后台记忆按会话隔离。
 
-当前版本 0.4.0，包含完整 Agent 执行环境、联网工具、外部 MCP 与自主注册。需求见 [PRD V0.8](docs/PRD-v0.8.md)，本轮结果见 [V0.8 实施与验收](docs/IMPLEMENTATION-v0.8.md)，此前文件交付记录见 [实施说明](docs/IMPLEMENTATION.md)。
+当前版本 0.5.0，包含完整 Agent 执行环境、联网工具、外部 MCP、自主注册和服务器本地语音转文字。需求见 [PRD V0.9](docs/PRD-v0.9.md)，上游 v9–v20 聊天体验和本次功能见 [更新日志](docs/RELEASE_NOTES.md)，此前结果见 [V0.8 实施与验收](docs/IMPLEMENTATION-v0.8.md)。
 
 本仓库基于 [Mrbubbl/Sophoschat](https://github.com/Mrbubbl/Sophoschat) 的 `e41aca1` 版本继续开发，保留原始 Git 历史。本轮未新增或更改项目许可证。
 
@@ -10,6 +10,7 @@
 
 - [部署、升级与备份](docs/DEPLOYMENT.md)
 - [账号、Agent、联网与 MCP 使用指南](docs/USAGE.md)
+- [服务器本地语音识别：安装模型、配置与使用](docs/ASR.md)
 - [手机 PWA、通知与国内推送限制](docs/MOBILE_PUSH.md)
 - [测试与验收](docs/TESTING.md)
 - [版本说明与已知限制](docs/RELEASE_NOTES.md)
@@ -21,8 +22,10 @@
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e '.[browser]'
+pip install -e '.[browser,asr]'
 python -m playwright install chromium
+python -m aichat.asr_setup
+# 语音解码还需要 FFmpeg：Linux 使用 sudo apt-get install ffmpeg；macOS 使用 brew install ffmpeg
 # Linux 需要时执行：python -m playwright install-deps chromium
 python -m aichat.cli init --username alice --display Alice
 python -m aichat.cli user add bob --display Bob
@@ -72,7 +75,7 @@ Debian/Ubuntu 安装脚本位于 `deploy/`，只部署应用与随应用启动�
 
 ## 当前边界
 
-专用 GitHub 连接/分支/PR 产品流程仍属后续阶段；完整终端可使用 Git/CLI，但需要相应远端认证。语音转写仍未注册；语音可以发送播放。已有音视频通话及旧 Notion 接入未纳入本次对齐验收。
+专用 GitHub 连接/分支/PR 产品流程仍属后续阶段；完整终端可使用 Git/CLI，但需要相应远端认证。本地语音转写已接入：长按/右键语音可转文字，无须会话含 Agent；涉及 Agent 的语音自动转写并进入上下文。模型与部署见 [ASR](docs/ASR.md)。已有音视频通话及旧 Notion 接入未纳入本次对齐验收。
 
 按 Room 导出仍使用旧聊天/记忆/附件导出，尚未加入交付物打包；完整备份已包含交付物。专门的交付物删除、ZIP 多文件交付及完整 PRD 验收仍待后续完成。
 

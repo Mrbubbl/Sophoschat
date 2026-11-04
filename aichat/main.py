@@ -52,7 +52,9 @@ def create_app(data_dir=None, scheduler: bool = True, **overrides) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        from . import transcription
         task = asyncio.create_task(scheduler_loop()) if scheduler else None
+        asr_task = asyncio.create_task(transcription.serve()) if scheduler else None
         async def supervise_agent():
             from . import runtime
             from aichat_agent.service import terminate_tree
@@ -76,6 +78,10 @@ def create_app(data_dir=None, scheduler: bool = True, **overrides) -> FastAPI:
         try:
             yield
         finally:
+            if asr_task:
+                asr_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await asr_task
             if service_task:
                 service_task.cancel()
                 with suppress(asyncio.CancelledError):

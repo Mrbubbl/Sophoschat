@@ -77,7 +77,7 @@ if [ -z "$TEST" ]; then
   say "安装系统依赖"
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
-  apt-get install -y -qq python3 python3-venv python3-pip nodejs npm unzip curl ca-certificates
+  apt-get install -y -qq python3 python3-venv python3-pip nodejs npm ffmpeg unzip curl ca-certificates
   if [ "$PROXY" = "own-nginx" ] && ! command -v nginx >/dev/null; then die "own-nginx 模式需要服务器上已有 nginx（apt install nginx 会顺带启动一个占用 80 端口的默认站点，所以脚本不替你装）"; fi
   id aichat >/dev/null 2>&1 || useradd --system --home-dir "$DATA_DIR" --shell /usr/sbin/nologin aichat
 fi
@@ -99,6 +99,12 @@ if [ -z "$TEST" ]; then
   chown -R root:root "$APP_DIR"
   chown aichat:aichat "$DATA_DIR" "$BACKUP_DIR"
   chmod 700 "$DATA_DIR" "$BACKUP_DIR"
+fi
+
+if [ "${INSTALL_LOCAL_ASR:-0}" = "1" ]; then
+  say "安装本地语音识别依赖与固定 SenseVoice 模型"
+  "$APP_DIR/venv/bin/pip" install -q "$APP_DIR/app[asr]"
+  as_app env "PYTHONPATH=$APP_DIR/app" "AICHAT_DATA_DIR=$DATA_DIR" "$APP_DIR/venv/bin/python" -m aichat.asr_setup
 fi
 
 # ------------------------------------------------------------------ 配置文件

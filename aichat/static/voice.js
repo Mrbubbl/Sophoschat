@@ -239,6 +239,12 @@ export function stopAllVoice() {
 }
 
 // opts: { mine, onPlayed }
+const hiddenTranscripts = new Set();
+export const transcriptHidden = (id) => hiddenTranscripts.has(id);
+export function toggleTranscript(id) {
+  hiddenTranscripts.has(id) ? hiddenTranscripts.delete(id) : hiddenTranscripts.add(id);
+}
+
 export function voicePlayer(a, opts = {}) {
   const total = a.duration_ms || 0;
   const values = a.waveform && a.waveform.length ? a.waveform : fallbackBars(a.id || 1);
@@ -362,8 +368,17 @@ export function voicePlayer(a, opts = {}) {
   const row = h('div', { class: 'voice', dataset: { aid: a.id } }, btn, wave, h('div', { class: 'vside' }, time, speed, dot));
   row.__play = play;
   row.__unplayed = () => !opts.mine && !played.has(a.id);
-  if (!a.transcript) return row;
-  return h('div', { class: 'voice-wrap' }, row, h('div', { class: 'transcript' }, a.transcript));
+  if (a.transcript) {
+    if (transcriptHidden(a.id)) return row;
+    return h('div', { class: 'voice-wrap' }, row, h('div', { class: 'transcript' }, h('small', { class: 'muted' }, '语音转写'), h('div', null, a.transcript)));
+  }
+  const busy = ['queued', 'running'].includes(a.transcription_status);
+  if (busy || a.transcription_status === 'failed') {
+    const errors = { asr_no_speech: '未识别到清晰语音', asr_too_long: '语音超过转写时长限制', asr_model_missing: '服务器尚未安装语音模型', asr_not_installed: '服务器尚未安装语音识别依赖', asr_disabled: '服务器已关闭转文字', asr_ffmpeg_missing: '服务器缺少 FFmpeg', asr_timeout: '转写超时' };
+    const text = busy ? (a.transcription_status === 'queued' ? '等待转文字…' : '正在转文字…') : (errors[a.transcription_error] || '转写失败') + '，长按语音可重试';
+    return h('div', { class: 'voice-wrap' }, row, h('div', { class: 'transcript asr-status muted', role: 'status', 'aria-live': 'polite' }, text));
+  }
+  return row;
 }
 
 // 播完一条后，自动播下面最近一条"别人发的、还没听过"的语音

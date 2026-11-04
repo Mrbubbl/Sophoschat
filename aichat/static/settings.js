@@ -284,6 +284,11 @@ function renderLook(el) {
     sw('autoplay', '自动连播', '听完一条后，自动播放下一条还没听过的语音'),
     h('p', { class: 'muted small' }, '录音：按住麦克风说话，松开发送；上滑锁定后可以松手、暂停和试听；左滑取消。长按任意文字消息可以「朗读」。')
   );
+  const asr = h('p', { class: 'muted small', role: 'status' }, '正在检查语音转文字…');
+  el.append(h('h3', null, '本地语音转文字'), asr);
+  get('/api/transcription/status').then((s) => {
+    asr.textContent = s.ready ? `SenseVoiceSmall · 服务器本地识别，最长 ${Math.floor(s.max_seconds / 60)} 分钟。长按语音选择「转文字」，无需会话内有 Agent。${s.auto_agent ? 'Agent 会自动读取需要处理的语音转写。' : 'Agent 自动转写已关闭。'}` : s.message;
+  }).catch(() => { asr.textContent = '暂时无法读取语音识别状态'; });
   setVoiceRate(p.voice_rate || 1);
 }
 

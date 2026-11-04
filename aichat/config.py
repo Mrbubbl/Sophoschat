@@ -36,6 +36,13 @@ class Config:
     allow_legacy_agent: bool = False
     start_agent_service: bool = True
     agent_base_url: str = "http://127.0.0.1:8000"
+    asr_enabled: bool = True
+    asr_auto_agent: bool = True
+    asr_model_dir: str = ""
+    asr_ffmpeg: str = "ffmpeg"
+    asr_threads: int = 2
+    asr_timeout: int = 180
+    asr_max_seconds: int = 300
 
     @property
     def db_path(self) -> Path:
@@ -81,6 +88,13 @@ def load(data_dir: str | os.PathLike | None = None, **overrides) -> Config:
         allow_legacy_agent=os.environ.get("AICHAT_ALLOW_LEGACY_AGENT") == "1",
         start_agent_service=os.environ.get("AICHAT_START_AGENT_SERVICE", "1") == "1",
         agent_base_url=os.environ.get("AICHAT_AGENT_BASE_URL", "http://127.0.0.1:8000"),
+        asr_enabled=os.environ.get("AICHAT_ASR_ENABLED", "1") == "1",
+        asr_auto_agent=os.environ.get("AICHAT_ASR_AUTO_AGENT", "1") == "1",
+        asr_model_dir=os.environ.get("AICHAT_ASR_MODEL_DIR", str(d / "models" / "sensevoice-small-int8")),
+        asr_ffmpeg=os.environ.get("AICHAT_ASR_FFMPEG", "ffmpeg"),
+        asr_threads=max(1, min(8, _int("AICHAT_ASR_THREADS", 2))),
+        asr_timeout=max(10, min(600, _int("AICHAT_ASR_TIMEOUT", 180))),
+        asr_max_seconds=max(1, min(900, _int("AICHAT_ASR_MAX_SECONDS", 300))),
     )
     for k, v in overrides.items():
         setattr(c, k, v)

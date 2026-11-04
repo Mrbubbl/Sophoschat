@@ -430,7 +430,20 @@ async def link_preview_image(key: str, u=Depends(current_user)):
 
 @router.post("/api/messages/{message_id}/transcribe")
 async def transcribe(message_id: int, u=Depends(current_user)):
-    return {"task": tasks.create_transcribe_task(message_id, uid(u))}
+    from . import transcription
+    return {"transcription": transcription.for_message(message_id, uid(u), request=True)}
+
+
+@router.get("/api/messages/{message_id}/transcription")
+async def transcription_result(message_id: int, u=Depends(current_user)):
+    from . import transcription
+    return {"transcription": transcription.for_message(message_id, uid(u))}
+
+
+@router.get("/api/transcription/status")
+async def transcription_status(u=Depends(current_user)):
+    from . import transcription
+    return transcription.availability()
 
 
 @router.get("/api/users")

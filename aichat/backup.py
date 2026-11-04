@@ -77,6 +77,7 @@ def restore_backup(archive: str | Path, data_dir: str | Path, force: bool = Fals
 def post_restore_fixups() -> list[dict]:
     """恢复后：把中断的任务放回队列、过期的互动任务标记过期，再做一致性检查。"""
     with db.tx():
+        db.run("UPDATE attachments SET transcription_state='queued' WHERE transcription_state='running' AND deleted_at IS NULL")
         db.run("UPDATE agent_tasks SET status='queued', lease_owner=NULL, lease_credential_id=NULL, lease_until=NULL WHERE status='leased'")
         db.run("UPDATE agent_tasks SET status='expired', finished_at=?, error='expired' WHERE status='queued' AND kind='chat' AND expires_at<?", (db.now(), db.now()))
     return doctor()

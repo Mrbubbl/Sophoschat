@@ -8,8 +8,8 @@ from typing import Any
 from . import auth, config, db, hub, security
 from .errors import ApiError
 
-GUIDE_VERSION = "0.8.0"
-PLATFORM_VERSION = "0.4.0"
+GUIDE_VERSION = "0.9.0"
+PLATFORM_VERSION = "0.5.0"
 
 
 # ---------------------------------------------------------------- 序列化与广播
@@ -63,6 +63,8 @@ def maybe_create_chat_task(room, msg, mention_ids: list[int]) -> int | None:
     )
     if not agent:
         return None
+    from . import transcription
+    voice_ids = transcription.prepare_agent(msg, agent["user_id"])
     directed = db.one("SELECT sender_id FROM messages WHERE id=? AND room_id=?", (msg["reply_to"], room["id"])) if msg["reply_to"] else None
     triggered = room["type"] == "agent_dm" or agent["user_id"] in mention_ids or (directed and directed["sender_id"] == agent["user_id"])
     if not triggered:
@@ -72,6 +74,8 @@ def maybe_create_chat_task(room, msg, mention_ids: list[int]) -> int | None:
         (room["id"], "chat", msg["id"], msg["version"], "queued", db.now(), db.after(config.get().chat_task_ttl), "{}"),
     )
     db.run("UPDATE agent_tasks SET initiator_id=? WHERE id=?", (msg["sender_id"], tid))
+    if voice_ids:
+        db.run("UPDATE agent_tasks SET params=? WHERE id=?", (db.jl({"voice_attachments": voice_ids}), tid))
     if directed:
         parent = db.one("SELECT artifact_version_id FROM messages WHERE id=?", (msg["reply_to"],))
         if parent and parent["artifact_version_id"]:
@@ -84,37 +88,6 @@ def maybe_create_chat_task(room, msg, mention_ids: list[int]) -> int | None:
     _publish_task(tid)
     _wake()
     return tid
-
-
-def create_transcribe_task(message_id: int, user_id: int) -> dict:
-    """用户长按语音消息选“转文字”：交给 Agent 做语音识别，结果写回附件（不在聊天里发消息）。"""
-    from . import chat
-
-    if not config.get().allow_legacy_agent:
-        raise ApiError(501, "transcription_not_available", "当前 SDK 模式尚未提供语音转写；语音消息仍可正常收发")
-
-    with db.tx():
-        m = db.one("SELECT * FROM messages WHERE id=?", (message_id,))
-        if not m or m["deleted_at"]:
-            raise ApiError(404, "message_not_found")
-        room = chat.require_member(m["room_id"], user_id)
-        a = db.one("SELECT * FROM attachments WHERE id=? AND deleted_at IS NULL", (m["attachment_id"],)) if m["attachment_id"] else None
-        if not a or a["mime"] not in chat.AUDIO_MIMES or a["duration_ms"] is None:
-            raise ApiError(400, "not_voice", "这不是语音消息")
-        if m["seq"] <= room["history_from_seq"]:
-            raise ApiError(404, "message_not_found")
-        if not chat.agent_member_id(room["id"]):
-            raise ApiError(409, "agent_not_in_room", "这个会话里没有 Agent")
-        pending = db.one("SELECT id FROM agent_tasks WHERE trigger_message_id=? AND kind='chat' AND status IN ('queued','leased') AND params LIKE '%transcribe%'", (message_id,))
-        if pending:
-            return ser_task(db.one("SELECT * FROM agent_tasks WHERE id=?", (pending["id"],)))
-        tid = db.insert(
-            "INSERT INTO agent_tasks(room_id, kind, trigger_message_id, trigger_message_version, status, created_at, expires_at, params) VALUES(?,?,?,?,?,?,?,?)",
-            (room["id"], "chat", m["id"], m["version"], "queued", db.now(), db.after(config.get().chat_task_ttl), db.jl({"intent": "transcribe"})),
-        )
-        _publish_task(tid)
-        _wake()
-        return ser_task(db.one("SELECT * FROM agent_tasks WHERE id=?", (tid,)))
 
 
 def retry_chat_task(task_id: int, user_id: int) -> dict:
@@ -347,6 +320,9 @@ def lease_next(cred, owner: str = "", *, engine: str = "legacy", profiles: tuple
             if reason:
                 db.run("UPDATE agent_tasks SET status='cancelled', finished_at=?, error=? WHERE id=?", (now, reason, t["id"]))
                 _publish_task(t["id"])
+                continue
+            from . import transcription
+            if transcription.pending_for_task(t):
                 continue
             admitted = None
             if sdk:
