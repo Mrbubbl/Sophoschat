@@ -47,8 +47,8 @@ export function roomTitle(r) {
 
 export function roomSubtitle(r) {
   if (r.type === 'agent_dm') return '与你的 Agent 私聊';
-  if (r.type === 'group') return r.members.filter((m) => m.role !== 'agent').map((m) => m.display_name).join('、') + (r.agent_in_room ? ' · 含 Agent' : '');
-  return r.agent_in_room ? '双人聊天 · 含 Agent' : '双人聊天';
+  if (r.type === 'group') return r.members.filter((m) => m.role !== 'agent').map((m) => m.display_name).join('、');
+  return '双人聊天';
 }
 
 export function agentUser(r) {

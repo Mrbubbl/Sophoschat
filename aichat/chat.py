@@ -43,7 +43,7 @@ def agent_member_id(room_id: int) -> int | None:
 
 def require_member(room_id: int, user_id: int):
     r = db.one(
-        "SELECT r.*, m.last_read_seq, m.archived, m.muted, m.history_from_seq FROM rooms r "
+        "SELECT r.*, m.last_read_seq, m.archived, m.muted, m.history_from_seq, m.pinned, m.marked_unread, m.bg FROM rooms r "
         "JOIN room_members m ON m.room_id=r.id WHERE r.id=? AND m.user_id=? AND m.left_at IS NULL",
         (room_id, user_id),
     )
@@ -104,6 +104,9 @@ def ser_room(r, user_id: int) -> dict:
         "unread": unread,
         "archived": bool(r["archived"]),
         "muted": bool(r["muted"]),
+        "pinned": bool(r["pinned"]) if "pinned" in r.keys() else False,
+        "marked_unread": bool(r["marked_unread"]) if "marked_unread" in r.keys() else False,
+        "bg": (r["bg"] if "bg" in r.keys() else None),
         "consolidation_enabled": bool(r["consolidation_enabled"]),
         "retention_days": r["retention_days"],
         "last_message": _preview(last),
@@ -123,6 +126,7 @@ def ser_attachment(a) -> dict | None:
         "is_voice": a["mime"] in AUDIO_MIMES and a["duration_ms"] is not None,
         "duration_ms": a["duration_ms"],
         "transcript": a["transcript"],
+        "waveform": [int(x) for x in a["waveform"].split(",")] if "waveform" in a.keys() and a["waveform"] else None,
         "url": f"/api/attachments/{a['id']}",
     }
 
@@ -263,7 +267,7 @@ def _publish_room_update(room_id: int) -> None:
     def push():
         for uid in human_member_ids(room_id):
             r = db.one(
-                "SELECT r.*, m.last_read_seq, m.archived, m.muted, m.history_from_seq FROM rooms r "
+                "SELECT r.*, m.last_read_seq, m.archived, m.muted, m.history_from_seq, m.pinned, m.marked_unread, m.bg FROM rooms r "
                 "JOIN room_members m ON m.room_id=r.id WHERE r.id=? AND m.user_id=?",
                 (room_id, uid),
             )
@@ -275,7 +279,7 @@ def _publish_room_update(room_id: int) -> None:
 
 def list_rooms(user_id: int) -> list[dict]:
     rows = db.all(
-        "SELECT r.*, m.last_read_seq, m.archived, m.muted, m.history_from_seq FROM rooms r "
+        "SELECT r.*, m.last_read_seq, m.archived, m.muted, m.history_from_seq, m.pinned, m.marked_unread, m.bg FROM rooms r "
         "JOIN room_members m ON m.room_id=r.id WHERE m.user_id=? AND m.left_at IS NULL",
         (user_id,),
     )
@@ -315,9 +319,31 @@ def update_room(room_id: int, user_id: int, changes: dict) -> dict:
 
 def set_member_flag(room_id: int, user_id: int, flag: str, value: bool) -> dict:
     require_member(room_id, user_id)
-    if flag not in ("archived", "muted"):
+    if flag not in ("archived", "muted", "pinned", "marked_unread"):
         raise ApiError(400, "invalid_flag")
     db.run(f"UPDATE room_members SET {flag}=? WHERE room_id=? AND user_id=?", (1 if value else 0, room_id, user_id))
+    r = require_member(room_id, user_id)
+    payload = {"type": "room.updated", "room": ser_room(r, user_id)}
+    hub.publish([user_id], payload)
+    return payload["room"]
+
+
+BG_PRESETS = {"dots", "grid", "waves", "paper", "aurora", "dusk", "mint", "night", "image"}
+BG_COLOR_RE = __import__("re").compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def valid_bg(value: str | None) -> str | None:
+    """聊天背景：None=跟随默认；预设名；或 #rrggbb 纯色；image=使用自己上传的背景图。"""
+    if value in (None, ""):
+        return None
+    if value in BG_PRESETS or BG_COLOR_RE.match(value):
+        return value
+    raise ApiError(400, "invalid_background", "不支持的背景")
+
+
+def set_room_bg(room_id: int, user_id: int, value: str | None) -> dict:
+    require_member(room_id, user_id)
+    db.run("UPDATE room_members SET bg=? WHERE room_id=? AND user_id=?", (valid_bg(value), room_id, user_id))
     r = require_member(room_id, user_id)
     payload = {"type": "room.updated", "room": ser_room(r, user_id)}
     hub.publish([user_id], payload)
@@ -522,9 +548,12 @@ def delete_message(message_id: int, user_id: int) -> None:
 def mark_read(room_id: int, user_id: int, seq: int) -> dict:
     room = require_member(room_id, user_id)
     seq = max(0, min(int(seq), room["max_seq"]))
-    db.run("UPDATE room_members SET last_read_seq=MAX(last_read_seq, ?) WHERE room_id=? AND user_id=?", (seq, room_id, user_id))
+    was_marked = bool(room["marked_unread"])
+    db.run("UPDATE room_members SET last_read_seq=MAX(last_read_seq, ?), marked_unread=0 WHERE room_id=? AND user_id=?", (seq, room_id, user_id))
     r = require_member(room_id, user_id)
     hub.publish([user_id], {"type": "read.updated", "room_id": room_id, "last_read_seq": r["last_read_seq"], "unread": ser_room(r, user_id)["unread"]})
+    if was_marked:
+        hub.publish([user_id], {"type": "room.updated", "room": ser_room(r, user_id)})
     return {"last_read_seq": r["last_read_seq"]}
 
 
@@ -715,11 +744,22 @@ def new_attachment_path(room_id: int) -> tuple[Path, str]:
     return p, rel
 
 
-def register_attachment(room_id: int, uploader_id: int, filename: str, mime: str, size: int, rel_path: str, sha256: str, duration_ms: int | None = None) -> dict:
+def clean_waveform(raw: str | None) -> str | None:
+    """语音波形：最多 64 个 0-31 的整数，逗号分隔；格式不对就丢弃。"""
+    if not raw:
+        return None
+    try:
+        vals = [max(0, min(31, int(x))) for x in raw.split(",")[:64]]
+    except ValueError:
+        return None
+    return ",".join(map(str, vals)) if len(vals) >= 8 else None
+
+
+def register_attachment(room_id: int, uploader_id: int, filename: str, mime: str, size: int, rel_path: str, sha256: str, duration_ms: int | None = None, waveform: str | None = None) -> dict:
     require_member(room_id, uploader_id)
     aid = db.insert(
-        "INSERT INTO attachments(room_id, uploader_id, filename, mime, size, path, sha256, created_at, duration_ms) VALUES(?,?,?,?,?,?,?,?,?)",
-        (room_id, uploader_id, safe_filename(filename), (mime or "application/octet-stream")[:100], size, rel_path, sha256, db.now(), duration_ms),
+        "INSERT INTO attachments(room_id, uploader_id, filename, mime, size, path, sha256, created_at, duration_ms, waveform) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        (room_id, uploader_id, safe_filename(filename), (mime or "application/octet-stream")[:100], size, rel_path, sha256, db.now(), duration_ms, waveform),
     )
     return ser_attachment(db.one("SELECT * FROM attachments WHERE id=?", (aid,)))
 

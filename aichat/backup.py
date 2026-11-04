@@ -43,7 +43,7 @@ def create_backup(out_path: str | Path) -> dict:
             tar.add(Path(td) / MANIFEST, arcname=MANIFEST)
             if cfg.attach_dir.exists():
                 tar.add(cfg.attach_dir, arcname="attachments")
-            for extra in ("secret.key", "vapid_private.pem", "avatars", "artifacts", "agent_state"):
+            for extra in ("secret.key", "vapid_private.pem", "avatars", "backgrounds", "artifacts", "agent_state"):
                 f = cfg.data_dir / extra
                 if f.exists():
                     tar.add(f, arcname=extra)
