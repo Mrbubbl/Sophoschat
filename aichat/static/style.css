@@ -889,3 +889,10 @@ html[data-motion='off'] *, html[data-motion='off'] *::before, html[data-motion='
 .contact-profile .btn { margin: 8px 8px 0 0; }
 .contact-avatar { padding: 0; border: 0; background: transparent; border-radius: 50%; cursor: pointer; }
 .contact-result:empty { display: none; }
+
+/* 手机：设置入口放进底部导航，头部的齿轮只在宽屏保留 */
+.primary-tabs .nav-settings { display: none; }
+@media (max-width: 899px) {
+  .primary-tabs .nav-settings { display: block; }
+  .left-head button[title='设置'] { display: none; }
+}
