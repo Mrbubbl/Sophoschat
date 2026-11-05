@@ -561,7 +561,7 @@ function onNewMessage(m) {
   const rows = rowEls(m, prev);
   const firstPending = els.msgs.querySelector('.row.pending');
   rows.forEach((el) => (firstPending ? firstPending.before(el) : els.msgs.append(el)));
-  rows.forEach((el) => enter(el, 'rise'));
+  rows.forEach((el) => enter(el, el.classList.contains('own') ? 'fromBelow' : el.classList.contains('row') ? 'fromLeft' : 'fade'));
   if (stick) scrollToBottom(true);
   else {
     newCount += 1;
@@ -1037,7 +1037,13 @@ function hideTyping() {
 }
 function onTyping(d) {
   if (d.room_id !== S.cur || d.user_id === S.me.id) return;
-  els.typing.replaceChildren(h('span', { class: 'tdots' }, h('i'), h('i'), h('i')), ' ' + userById(d.user_id).display_name + ' 正在输入');
+  const u = userById(d.user_id);
+  const isAgent = u.role === 'agent';
+  els.typing.classList.toggle('agent', isAgent);
+  els.typing.replaceChildren(
+    isAgent ? h('span', { class: 'adots', 'aria-hidden': 'true' }, ...Array.from({ length: 9 }, () => h('i'))) : h('span', { class: 'tdots' }, h('i'), h('i'), h('i')),
+    ' ' + u.display_name + (isAgent ? ' 正在回复' : ' 正在输入')
+  );
   els.typing.hidden = false;
   clearTimeout(typingTimer);
   typingTimer = setTimeout(hideTyping, 5000);
@@ -1283,7 +1289,7 @@ function updateSendState() {
   if (mode !== sendMode) {
     sendMode = mode;
     els.send.replaceChildren(icon(mode === 'mic' ? 'mic' : 'send', 20));
-    enter(els.send.firstChild, 'bounce');
+    enter(els.send.firstChild, 'swap');
     els.send.classList.toggle('mic', mode === 'mic');
     const label = mode === 'mic' ? '录制语音' : '发送';
     els.send.title = label;
@@ -1508,7 +1514,7 @@ async function send() {
   const prev = st.list[st.list.length - 2] || null;
   const sentRows = rowEls(m, prev);
   els.msgs.append(...sentRows);
-  sentRows.forEach((el) => enter(el, 'rise'));
+  sentRows.forEach((el) => enter(el, el.classList.contains('row') ? 'fromBelow' : 'fade'));
   els.input.value = '';
   replyTo = null;
   pendingAtt = null;

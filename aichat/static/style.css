@@ -892,6 +892,7 @@ html[data-motion='off'] *, html[data-motion='off'] *::before, html[data-motion='
 
 /* 手机：设置入口放进底部导航，头部的齿轮只在宽屏保留 */
 .primary-tabs .nav-settings { display: none; }
+html[data-ui='classic'] .primary-tabs .nav-ic, html[data-ui='classic'] .primary-tabs .nav-ind { display: none; }
 @media (max-width: 899px) {
   .primary-tabs .nav-settings { display: block; }
   .left-head button[title='设置'] { display: none; }

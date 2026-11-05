@@ -23,6 +23,9 @@ const FRAMES = {
   fade: [{ opacity: 0 }, { opacity: 1 }],
   forward: [{ opacity: 0, transform: 'translateX(28px)' }, { opacity: 1, transform: 'none' }],
   back: [{ opacity: 0, transform: 'translateX(-28px)' }, { opacity: 1, transform: 'none' }],
+  fromLeft: [{ opacity: 0, transform: 'translateX(-14px) scale(0.98)' }, { opacity: 1, transform: 'none' }],
+  fromBelow: [{ opacity: 0, transform: 'translateY(18px) scale(0.97)' }, { opacity: 1, transform: 'none' }],
+  swap: [{ opacity: 0, transform: 'rotate(-90deg) scale(0.5)' }, { opacity: 1, transform: 'none' }],
   bounce: [{ transform: 'scale(0.5)', opacity: 0 }, { transform: 'scale(1.12)', opacity: 1, offset: 0.6 }, { transform: 'none', opacity: 1 }],
 };
 const DEFAULTS = {
@@ -32,6 +35,9 @@ const DEFAULTS = {
   fade: [DUR.short, EASE.standard],
   forward: [DUR.medium + 40, EASE.decel],
   back: [DUR.medium + 40, EASE.decel],
+  fromLeft: [DUR.short + 60, EASE.decel],
+  fromBelow: [DUR.short + 100, EASE.decel],
+  swap: [DUR.short, EASE.decel],
   bounce: [DUR.short + 140, EASE.standard],
 };
 

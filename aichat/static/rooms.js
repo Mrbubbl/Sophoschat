@@ -18,9 +18,10 @@ export function initRooms(container) {
   container.append(
     h('header', { class: 'left-head' }, els.meBtn, h('div', { class: 'grow' }), els.pill, iconBtn('plus', '新建聊天', openNewChat), iconBtn('gear', '设置', () => emit('open-settings'))),
     h('div', { class: 'primary-tabs', role: 'tablist', 'aria-label': '主列表' },
-      h('button', { type: 'button', role: 'tab', 'aria-selected': 'true', onclick: () => setListMode('chats') }, '聊天'),
-      h('button', { type: 'button', role: 'tab', 'aria-selected': 'false', onclick: () => setListMode('contacts') }, '联系人'),
-      h('button', { type: 'button', class: 'nav-settings', title: '设置', onclick: () => emit('open-settings') }, '设置')),
+      h('button', { type: 'button', role: 'tab', 'aria-selected': 'true', onclick: () => setListMode('chats') }, h('span', { class: 'nav-ic' }, icon('chat', 22), els.navBadge = h('b', { class: 'nav-badge', hidden: true })), h('span', { class: 'nav-tx' }, '聊天')),
+      h('button', { type: 'button', role: 'tab', 'aria-selected': 'false', onclick: () => setListMode('contacts') }, h('span', { class: 'nav-ic' }, icon('users', 22)), h('span', { class: 'nav-tx' }, '联系人')),
+      h('button', { type: 'button', class: 'nav-settings', title: '设置', onclick: () => emit('open-settings') }, h('span', { class: 'nav-ic' }, icon('gear', 22)), h('span', { class: 'nav-tx' }, '设置')),
+      h('i', { class: 'nav-ind', 'aria-hidden': 'true' })),
     h('div', { class: 'searchbar' }, icon('search', 16), els.search),
     els.tabs,
     els.list,
@@ -97,6 +98,7 @@ function setListMode(mode) {
   if (!contacts && els.search.value) runSearch();
   if (!contacts && els.mode && els.mode !== mode) stagger(els.list.children);
   els.mode = mode;
+  els.container.querySelector('.primary-tabs')?.style.setProperty('--i', contacts ? 1 : 0);
 }
 
 function preview(m) {
@@ -150,6 +152,14 @@ export function renderRooms() {
   if (els.listKey !== key) { els.listKey = key; stagger(els.list.children); }
   document.title = (unreadActive ? `(${unreadActive}) ` : '') + 'SophosChat';
   emit('unread', unreadActive);
+  if (els.navBadge) {
+    const txt = unreadActive > 99 ? '99+' : String(unreadActive);
+    const was = els.navBadge.hidden ? '' : els.navBadge.textContent;
+    els.navBadge.hidden = !unreadActive;
+    els.navBadge.textContent = unreadActive ? txt : '';
+    if (unreadActive && txt !== was && was !== undefined && els.navBadgeReady) enter(els.navBadge, 'bounce');
+    els.navBadgeReady = true;
+  }
 }
 
 function roomItem(r) {
