@@ -1,0 +1,246 @@
+/* =====================================================================
+   Nothing 风格（默认）。只在 <html data-ui="nothing"> 下生效；设置里切到「经典」就完全不起作用。
+   原则：黑白灰打底，红色只给“要你注意”的东西（未读、发送、在线），
+        紫色只属于 Agent，点阵字体只给机器和数字，不用在小字上。
+   ===================================================================== */
+@font-face { font-family: 'Doto'; src: url('/static/fonts/doto-800.woff2') format('woff2'); font-weight: 800; font-style: normal; font-display: swap; unicode-range: U+0020-007E; }
+
+html[data-ui='nothing'] {
+  --bg: #f2f2f0;
+  --panel: #ffffff;
+  --panel2: #f2f2f0;
+  --text: #0a0a0a;
+  --muted: #6b6b68;
+  --line: #e6e6e2;
+  --ink: #0a0a0a;
+  --on-ink: #ffffff;
+  --accent: #d71921;
+  --accent-ink: #ffffff;
+  --accent-soft: #e9e9e5;
+  --own: #0a0a0a;
+  --other: #ffffff;
+  --agent-bg: #ece8ff;
+  --agent-ink: #5b3df5;
+  --warn: #8a5a00;
+  --warn-bg: #f6e6b4;
+  --danger: #d71921;
+  --ok: #15803d;
+  --shadow: 0 10px 34px rgba(0, 0, 0, 0.16);
+  --dot: 'Doto', ui-monospace, monospace;
+  --font: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', 'Microsoft YaHei', 'Segoe UI', Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  html[data-ui='nothing'] {
+    --bg: #0b0b0b;
+    --panel: #141414;
+    --panel2: #1b1b1b;
+    --text: #f2f2f0;
+    --muted: #9a9a96;
+    --line: #262626;
+    --ink: #f2f2f0;
+    --on-ink: #0a0a0a;
+    --accent: #ff3b44;
+    --accent-ink: #ffffff;
+    --accent-soft: #232323;
+    --own: #f2f2f0;
+    --other: #1f1f1f;
+    --agent-bg: #2a2352;
+    --agent-ink: #b9a9ff;
+    --warn: #f6d77a;
+    --warn-bg: #2d2610;
+    --danger: #ff5a62;
+    --ok: #4ade80;
+    --shadow: 0 10px 34px rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* ---------- 点阵字体：只用在 16px 以上的展示性文字 ---------- */
+html[data-ui='nothing'] .agent-badge,
+html[data-ui='nothing'] .room-item:has(.avatar.agent) .ri-title,
+html[data-ui='nothing'] .chat-head:has(.avatar.agent) .head-title h1,
+html[data-ui='nothing'] .dotnum { font-family: var(--dot); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 800; }
+html[data-ui='nothing'] .agent-badge { font-size: 15px; color: var(--agent-ink); margin-left: 0; vertical-align: baseline; }
+html[data-ui='nothing'] .room-item:has(.avatar.agent) .ri-title { font-size: 17px; }
+
+/* ---------- 通用 ---------- */
+html[data-ui='nothing'] a { color: var(--text); text-underline-offset: 3px; }
+html[data-ui='nothing'] .link { color: var(--text); }
+html[data-ui='nothing'] .btn { border-radius: 22px; padding: 9px 16px; background: var(--panel); }
+html[data-ui='nothing'] .btn.small { padding: 6px 14px; border-radius: 18px; }
+html[data-ui='nothing'] .btn.primary { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
+html[data-ui='nothing'] .btn.primary:hover { background: var(--ink); }
+html[data-ui='nothing'] .btn.primary.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+html[data-ui='nothing'] .icon-btn { width: 44px; height: 44px; border-radius: 22px; color: var(--text); }
+html[data-ui='nothing'] input[type='text'], html[data-ui='nothing'] input[type='password'], html[data-ui='nothing'] input[type='search'], html[data-ui='nothing'] input[type='number'], html[data-ui='nothing'] input[type='date'], html[data-ui='nothing'] textarea, html[data-ui='nothing'] select { border-radius: 14px; }
+html[data-ui='nothing'] input:focus, html[data-ui='nothing'] textarea:focus, html[data-ui='nothing'] select:focus { border-color: var(--ink); box-shadow: none; }
+html[data-ui='nothing'] :focus-visible { outline-color: var(--ink); }
+html[data-ui='nothing'] .badge { min-width: 22px; height: 22px; padding: 0 7px; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+html[data-ui='nothing'] .badge.mute { background: color-mix(in srgb, var(--muted) 55%, transparent); color: #fff; }
+html[data-ui='nothing'] .dot.online { background: var(--accent); box-shadow: none; }
+html[data-ui='nothing'] .tag { border-radius: 10px; }
+html[data-ui='nothing'] .tag.manual { background: var(--accent-soft); color: var(--text); }
+html[data-ui='nothing'] .tag.agent, html[data-ui='nothing'] .agent-badge { background: none; }
+html[data-ui='nothing'] .note { background: var(--accent-soft); }
+html[data-ui='nothing'] .note.warn { background: var(--warn-bg); color: var(--warn); }
+html[data-ui='nothing'] .switch input:checked + .slider { background: var(--ink); }
+html[data-ui='nothing'] .switch input:checked + .slider::after { background: var(--on-ink); }
+html[data-ui='nothing'] .switch-row input { accent-color: var(--ink); }
+html[data-ui='nothing'] .seg button.on { background: var(--ink); color: var(--on-ink); }
+html[data-ui='nothing'] .seg { border-radius: 22px; }
+html[data-ui='nothing'] .modal { border-radius: 26px; }
+html[data-ui='nothing'] .toast { background: var(--ink); color: var(--on-ink); }
+html[data-ui='nothing'] .toast.err { background: var(--danger); color: #fff; }
+html[data-ui='nothing'] .logo-mark { background: var(--ink); color: var(--on-ink); }
+
+/* ---------- 头像：人是单色，Agent 是紫色加点阵星 ---------- */
+html[data-ui='nothing'] .avatar:not(.agent):not(.has-img) { background: #e4e1da; color: #0a0a0a; font-weight: 600; }
+@media (prefers-color-scheme: dark) { html[data-ui='nothing'] .avatar:not(.agent):not(.has-img) { background: #2a2a2a; color: #f2f2f0; } }
+html[data-ui='nothing'] .avatar.agent.logo { background: #5b3df5 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 22'%3E%3Cg fill='%23fff'%3E%3Ccircle cx='11' cy='2' r='1.7'/%3E%3Ccircle cx='11' cy='6.5' r='1.7'/%3E%3Ccircle cx='2' cy='11' r='1.7'/%3E%3Ccircle cx='6.5' cy='11' r='1.7'/%3E%3Ccircle cx='11' cy='11' r='1.7'/%3E%3Ccircle cx='15.5' cy='11' r='1.7'/%3E%3Ccircle cx='20' cy='11' r='1.7'/%3E%3Ccircle cx='11' cy='15.5' r='1.7'/%3E%3Ccircle cx='11' cy='20' r='1.7'/%3E%3C/g%3E%3C/svg%3E") center / 56% no-repeat; }
+html[data-ui='nothing'] .avatar.agent.logo img { display: none; }
+
+/* ---------- 左栏：聊天列表 ---------- */
+html[data-ui='nothing'] .left { background: var(--bg); }
+html[data-ui='nothing'] .left-head { padding: 14px 10px 6px 16px; }
+html[data-ui='nothing'] .me-name { font-weight: 600; font-size: 17px; }
+html[data-ui='nothing'] .pill { background: var(--panel); border-radius: 18px; }
+html[data-ui='nothing'] .searchbar input { background: var(--panel); border: 1px solid var(--line); border-radius: 24px; height: 46px; padding-left: 40px; }
+html[data-ui='nothing'] .searchbar svg { left: 14px; }
+html[data-ui='nothing'] .tabs { gap: 8px; padding: 4px 14px 8px; }
+html[data-ui='nothing'] .tab { height: 40px; padding: 0 16px; border-radius: 20px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+html[data-ui='nothing'] .tab.on { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
+html[data-ui='nothing'] .tab .count { color: inherit; opacity: 0.7; }
+html[data-ui='nothing'] .roomlist { padding: 0 6px 12px; }
+html[data-ui='nothing'] .room-item { padding: 10px 12px; border-radius: 18px; gap: 14px; }
+html[data-ui='nothing'] .room-item:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
+html[data-ui='nothing'] .room-item.on { background: var(--panel); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
+html[data-ui='nothing'] .room-item.pinned:not(.on) { background: transparent; }
+html[data-ui='nothing'] .ri-title { font-size: 16px; font-weight: 600; }
+html[data-ui='nothing'] .ri-top time { font-size: 12px; font-variant-numeric: tabular-nums; }
+html[data-ui='nothing'] .ri-text { font-size: 14px; }
+html[data-ui='nothing'] .conn { border-radius: 14px; margin: 0 12px; }
+
+/* 联系人页：白色圆角卡片里一条条排 */
+html[data-ui='nothing'] .contact-toolbar { padding: 12px 16px 8px; }
+html[data-ui='nothing'] .contact-list { background: var(--panel); margin: 4px 14px 12px; border-radius: 24px; padding: 6px 0; }
+html[data-ui='nothing'] .contact-item { padding: 10px 16px; border-radius: 0; }
+html[data-ui='nothing'] .contact-item + .contact-item { border-top: 1px solid var(--line); }
+html[data-ui='nothing'] .contact-item:hover { background: var(--panel2); }
+
+/* 主导航：手机上沉到底部，电脑上是顶部的分段控件 */
+html[data-ui='nothing'] .primary-tabs { padding: 4px 14px 8px; gap: 8px; border-bottom: 0; }
+html[data-ui='nothing'] .primary-tabs button { border-radius: 20px; padding: 10px; font-weight: 600; color: var(--muted); }
+html[data-ui='nothing'] .primary-tabs button[aria-selected='true'] { background: var(--ink); color: var(--on-ink); }
+@media (max-width: 899px) {
+  html[data-ui='nothing'] .primary-tabs { order: 99; background: var(--panel); border-top: 1px solid var(--line); padding: 8px 12px calc(10px + env(safe-area-inset-bottom)); margin-top: auto; }
+  html[data-ui='nothing'] .primary-tabs button { height: 46px; font-size: 14px; }
+  html[data-ui='nothing'] .primary-tabs button[aria-selected='true'] { background: var(--accent-soft); color: var(--text); font-weight: 700; }
+  html[data-ui='nothing'] .primary-tabs button[aria-selected='true']::after { content: ''; display: block; width: 18px; height: 3px; border-radius: 2px; background: var(--accent); margin: 4px auto -2px; }
+  html[data-ui='nothing'] .primary-tabs button::after { content: ''; display: block; height: 3px; margin: 4px auto -2px; }
+}
+
+/* ---------- 聊天头部 ---------- */
+html[data-ui='nothing'] .chat-head { background: var(--bg); border-bottom: 1px solid var(--line); padding: 8px 8px; }
+html[data-ui='nothing'] .head-title h1 { font-size: 17px; font-weight: 600; }
+html[data-ui='nothing'] .head-title .sub { font-size: 12.5px; }
+html[data-ui='nothing'] .agentbar { background: var(--bg); }
+html[data-ui='nothing'] .center { background: var(--bg); }
+
+/* ---------- 消息：连续同一人发的气泡贴在一起，时间是角标 ---------- */
+html[data-ui='nothing'] .msgs { padding: 14px 14px 10px; }
+html[data-ui='nothing'] .row { margin-top: 12px; }
+html[data-ui='nothing'] .row.grouped { margin-top: 2px; }
+html[data-ui='nothing'] .bubble, html[data-ui='nothing'] .fake { font-size: max(var(--msg-fs), 16px); line-height: 1.5; }
+html[data-ui='nothing'] .bubble { border-radius: 20px; box-shadow: none; padding: 8px 13px 6px; }
+html[data-ui='nothing'] .row:not(.own) .bubble { background: var(--other); }
+html[data-ui='nothing'] .row.grouped:not(.own) .bubble { border-top-left-radius: 6px; }
+html[data-ui='nothing'] .row:not(.own):has(+ .row.grouped:not(.own)) .bubble { border-bottom-left-radius: 6px; }
+html[data-ui='nothing'] .row.grouped.own .bubble { border-top-right-radius: 6px; }
+html[data-ui='nothing'] .row.own:has(+ .row.grouped.own) .bubble { border-bottom-right-radius: 6px; }
+html[data-ui='nothing'] .row.own .bubble { background: var(--own); color: var(--on-ink); --text: var(--on-ink); --muted: color-mix(in srgb, var(--on-ink) 62%, var(--own)); --accent: var(--on-ink); --accent-ink: var(--own); --line: color-mix(in srgb, var(--on-ink) 22%, var(--own)); }
+html[data-ui='nothing'] .row.own .bubble a { color: var(--on-ink); }
+html[data-ui='nothing'] .row.own .bubble .md code { background: color-mix(in srgb, var(--on-ink) 16%, transparent); }
+html[data-ui='nothing'] .sender { font-size: 12.5px; font-weight: 500; color: var(--muted); }
+html[data-ui='nothing'] .mention { color: var(--agent-ink); font-weight: 600; }
+html[data-ui='nothing'] .bubble.tinline > .meta { right: 11px; bottom: 5px; font-size: 11px; opacity: 1; color: var(--muted); font-variant-numeric: tabular-nums; }
+html[data-ui='nothing'] .tpad { width: 40px; }
+html[data-ui='nothing'] .tpad.wide { width: 76px; }
+html[data-ui='nothing'] .meta .starred { color: var(--accent); }
+
+/* Agent 的回复：不放气泡，左边一条紫线 */
+html[data-ui='nothing'] .row.agent .bubble { background: transparent; border-radius: 0; border-left: 2px solid var(--agent-ink); padding: 2px 4px 4px 12px; }
+html[data-ui='nothing'] .row.agent.hl .bubble { background: color-mix(in srgb, var(--agent-ink) 10%, transparent); }
+html[data-ui='nothing'] .msgwrap[data-bg]:not([data-bg='']) .row.agent .bubble { border-left: 2px solid var(--agent-ink); border-radius: 0 16px 16px 0; padding: 8px 12px 6px 12px; }
+
+/* 日期分隔：两侧细线加居中小字 */
+html[data-ui='nothing'] .day-sep, html[data-ui='nothing'] .time-sep { display: flex; align-items: center; gap: 12px; margin: 14px 0 6px; }
+html[data-ui='nothing'] .day-sep::before, html[data-ui='nothing'] .day-sep::after, html[data-ui='nothing'] .time-sep::before, html[data-ui='nothing'] .time-sep::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+html[data-ui='nothing'] .day-sep span, html[data-ui='nothing'] .time-sep span { background: none; padding: 0; font-size: 12px; font-weight: 500; color: var(--muted); backdrop-filter: none; font-variant-numeric: tabular-nums; }
+html[data-ui='nothing'] .unread-divider { color: var(--accent); }
+html[data-ui='nothing'] .to-bottom { background: var(--accent); color: #fff; height: 40px; padding: 0 16px; border-radius: 20px; }
+html[data-ui='nothing'] .typingbar { border-radius: 20px; }
+html[data-ui='nothing'] .tdots i { background: var(--agent-ink); }
+html[data-ui='nothing'] .react { border-radius: 14px; }
+html[data-ui='nothing'] .react.mine { border-color: var(--ink); background: var(--accent-soft); }
+html[data-ui='nothing'] .reply { border-left-color: var(--ink); }
+html[data-ui='nothing'] .row.own .reply { border-left-color: var(--on-ink); }
+html[data-ui='nothing'] .lcard, html[data-ui='nothing'] .artifact-card { border-radius: 18px; }
+html[data-ui='nothing'] .ac-ico { background: var(--accent-soft); color: var(--text); }
+
+/* 语音：播放键黑色，进度用点 */
+html[data-ui='nothing'] .vplay { background: var(--ink); color: var(--on-ink); }
+html[data-ui='nothing'] .row.own .vplay { background: var(--on-ink); color: var(--own); }
+html[data-ui='nothing'] .voice .wave i.on { background: var(--text); }
+html[data-ui='nothing'] .voice .wave i { background: color-mix(in srgb, var(--muted) 55%, transparent); }
+html[data-ui='nothing'] .vspeed { background: color-mix(in srgb, var(--text) 12%, transparent); color: var(--text); }
+html[data-ui='nothing'] .vdot { background: var(--accent); }
+html[data-ui='nothing'] .vtime { font-family: var(--dot); font-size: 14px; letter-spacing: 0.04em; }
+
+/* ---------- 输入区：胶囊 + 红色发送键 ---------- */
+html[data-ui='nothing'] .composer { background: transparent; border-top: 0; padding: 8px 12px calc(12px + env(safe-area-inset-bottom)); }
+html[data-ui='nothing'] .composer-row { gap: 8px; align-items: center; }
+html[data-ui='nothing'] .cbox { background: var(--panel); border: 1px solid var(--line); border-radius: 26px; }
+html[data-ui='nothing'] .cbox:focus-within { border-color: var(--ink); box-shadow: none; }
+html[data-ui='nothing'] .cbox textarea { min-height: 46px; padding: 12px 6px 12px 16px; }
+html[data-ui='nothing'] .send { width: 48px; height: 48px; background: var(--accent); color: #fff; }
+html[data-ui='nothing'] .send.mic { background: var(--panel); border: 1px solid var(--line); color: var(--text); }
+html[data-ui='nothing'] .send:disabled { background: color-mix(in srgb, var(--muted) 30%, transparent); }
+html[data-ui='nothing'] .replybar, html[data-ui='nothing'] .attbar { border-left-color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-left-width: 3px; }
+html[data-ui='nothing'] .mention-pop { border-radius: 18px; }
+html[data-ui='nothing'] .mention-pop button.sel, html[data-ui='nothing'] .mention-pop button:hover { background: var(--accent-soft); }
+html[data-ui='nothing'] .recbar .rtime { font-family: var(--dot); font-size: 16px; letter-spacing: 0.04em; }
+
+/* ---------- 设置 ---------- */
+html[data-ui='nothing'] .set-nav button { border-radius: 20px; }
+html[data-ui='nothing'] .set-nav button.on { background: var(--ink); color: var(--on-ink); }
+html[data-ui='nothing'] .card { background: var(--panel); border: 0; border-radius: 22px; }
+html[data-ui='nothing'] .device { border-radius: 18px; background: var(--panel); }
+html[data-ui='nothing'] .inv-item { border-radius: 18px; }
+html[data-ui='nothing'] .ctxmenu { border-radius: 20px; }
+html[data-ui='nothing'] .popbar { border-radius: 16px; }
+html[data-ui='nothing'] .bgsw.on .bgprev { outline-color: var(--ink); }
+html[data-ui='nothing'] .accent-sw.on span { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--text); }
+html[data-ui='nothing'] .steps > li::before { background: var(--ink); color: var(--on-ink); font-family: var(--dot); }
+
+/* Agent 用量卡：黑底，大点阵金额，20 个点的用量条 */
+.usage-card { display: none; }
+html[data-ui='nothing'] .usage-card { display: flex; flex-direction: column; gap: 12px; background: #0a0a0a; color: #f2f2f0; border-radius: 22px; padding: 16px 18px; margin: 8px 0 14px; }
+@media (prefers-color-scheme: dark) { html[data-ui='nothing'] .usage-card { background: #1b1b1b; } }
+html[data-ui='nothing'] .usage-card .uc-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+html[data-ui='nothing'] .usage-card .uc-top small { color: #b3b3ae; font-size: 13px; }
+html[data-ui='nothing'] .usage-card .uc-amt { font-family: var(--dot); font-weight: 800; font-size: 28px; line-height: 1; letter-spacing: 0.03em; }
+html[data-ui='nothing'] .usage-card .uc-amt span { font-size: 15px; color: #8f8f8a; }
+html[data-ui='nothing'] .usage-card .uc-dots { display: flex; justify-content: space-between; }
+html[data-ui='nothing'] .usage-card .uc-dots i { width: 9px; height: 9px; border-radius: 50%; background: #2f2f2d; }
+html[data-ui='nothing'] .usage-card .uc-dots i.on { background: #fff; }
+html[data-ui='nothing'] .usage-card .uc-dots.warn i.on { background: var(--accent); }
+html[data-ui='nothing'] .usage-line { display: none; }
+
+/* ---------- 补充：每组只在最后一条显示时间；预览与联系人搜索 ---------- */
+html[data-ui='nothing'] .row:has(+ .row.grouped) .bubble.tinline > .meta time,
+html[data-ui='nothing'] .row:has(+ .row.grouped) .tpad:not(.wide) { display: none; }
+html[data-ui='nothing'] .fake { box-shadow: none; border-radius: 20px; }
+html[data-ui='nothing'] .fake.own { background: var(--own); color: var(--on-ink); }
+html[data-ui='nothing'] .fake.other { background: var(--other); border-bottom-left-radius: 6px; }
+html[data-ui='nothing'] .fake.own { border-bottom-right-radius: 6px; }
+html[data-ui='nothing'] .contact-toolbar input { height: 46px; border-radius: 24px; background: var(--panel); border: 1px solid var(--line); padding: 0 18px; }
+html[data-ui='nothing'] .contact-toolbar .btn { justify-content: center; height: 46px; }

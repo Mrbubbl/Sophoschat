@@ -4,7 +4,7 @@ import { S, emit } from './store.js';
 import { showTimes, setShowTimes, h, icon, iconBtn, avatar, modal, toast, ask, copyText, fmtFull, fmtRel, squareJpeg } from './util.js';
 import { api } from './api.js';
 import { pushStatus, enablePush, disablePush } from './push.js';
-import { ACCENTS, FONTS, applyPrefs, savePrefs, bgPicker, paintBg, pickImage, uploadBgImage } from './appearance.js';
+import { ACCENTS, FONTS, UIS, applyPrefs, savePrefs, bgPicker, paintBg, pickImage, uploadBgImage } from './appearance.js';
 import { setVoiceRate, setAutoNext } from './voice.js';
 import { openInviteDialog, renderInviteList } from './invite.js';
 
@@ -147,6 +147,7 @@ async function renderAgent(el) {
     S.agent = st;
     emit('agent', st);
     const title = { unconfigured: '未配置', offline: '离线', online: '在线', paused: '已暂停', degraded: '模型调用异常' }[st.state] || st.state;
+    let monthly = null;
     const body = h('div', { class: 'agent-settings' }, h('h3', null, '服务端 Agent · ' + title),
       h('p', { class: 'note' }, 'AI 由服务器统一运行。普通成员只需聊天，无需安装终端 Agent、复制凭证或保持电脑在线。'),
       h('div', { class: 'ac-grid' }, kv('最近心跳', st.last_heartbeat ? fmtFull(st.last_heartbeat) : '—'), kv('指南版本', st.guide_version_current)),
@@ -154,6 +155,7 @@ async function renderAgent(el) {
     el.replaceChildren(body);
     if (S.me.role === 'owner') {
       const { settings: cfg, sdk } = await get('/api/agent/settings');
+      monthly = Number(cfg.monthly_usd) || null;
       body.append(h('p', { class: 'muted small' }, `执行引擎：Claude Agent SDK ${sdk.version || '未安装'} · 要求 ${sdk.expected}`));
       const input = (name, label, type = 'text') => {
         const field = h('input', { type, value: cfg[name], 'aria-label': label, step: type === 'number' ? 'any' : undefined });
@@ -200,10 +202,21 @@ async function renderAgent(el) {
       body.append(h('button', { class: 'btn', type: 'button', onclick: async () => { try { renderChecks(await post('/api/agent/selfcheck')); } catch(e) { toast(e.message, 'err'); } } }, '运行真实 SDK 与文件自检'), checkBox);
     }
     const usage = await get('/api/agent/usage');
-    body.append(h('h3', null, '本月任务用量'), h('p', null, `已知费用 $${usage.known_cost_usd.toFixed(4)} · ${usage.unknown_attempts} 次费用未知（保留预算）`),
+    body.append(h('h3', null, '本月任务用量'), usageCard(usage.known_cost_usd, monthly), h('p', { class: 'usage-line' }, `已知费用 $${usage.known_cost_usd.toFixed(4)} · ${usage.unknown_attempts} 次费用未知（保留预算）`),
       h('div', { class: 'usage-list' }, usage.attempts.slice(0,20).map(a => h('div', { class: 'kv' }, `任务 #${a.task_id} / 第 ${a.attempt} 次 · ${a.profile}`, a.cost_usd === null ? '费用未知' : '$' + a.cost_usd.toFixed(4)))));
     body.append(h('a', { class: 'btn small', href: '/agent-guide.md', download: 'AGENT_GUIDE.md' }, '下载当前 Agent 指南'));
   } catch(e) { el.replaceChildren(h('p', { class: 'note warn' }, e.message)); }
+}
+
+// Nothing 风格的用量卡：大点阵金额 + 20 个点的用量条（经典风格下由 CSS 隐藏）
+function usageCard(known, limit) {
+  const used = Number(known) || 0;
+  const ratio = limit ? Math.min(1, used / limit) : 0;
+  const on = limit ? Math.max(used > 0 ? 1 : 0, Math.round(ratio * 20)) : 0;
+  return h('div', { class: 'usage-card', role: 'img', 'aria-label': limit ? `本月已用 $${used.toFixed(2)}，额度 $${limit}` : `本月已用 $${used.toFixed(2)}` },
+    h('div', { class: 'uc-top' }, h('small', null, '本月已用'), h('div', { class: 'uc-amt' }, '$' + used.toFixed(2), limit ? h('span', null, ' / $' + limit) : null)),
+    limit ? h('div', { class: 'uc-dots' + (ratio >= 0.8 ? ' warn' : '') }, Array.from({ length: 20 }, (_, i) => h('i', { class: i < on ? 'on' : '' }))) : null,
+    h('small', { style: { color: '#b3b3ae' } }, '含未知费用的预留请看下面的明细'));
 }
 
 const kv = (k, v) => h('div', { class: 'kv' }, h('small', null, k), h('span', null, v));
@@ -254,9 +267,13 @@ function renderLook(el) {
   const sw = (key, label, hint) => h('label', { class: 'switch-row' }, h('input', { type: 'checkbox', checked: !!p[key], onchange: async (e) => { const r = await savePrefs({ [key]: e.target.checked }); if (r && key === 'autoplay') setAutoNext(r.autoplay); } }), h('span', { class: 'sw-text' }, label, hint ? h('small', null, hint) : null));
   const preview = h('div', { class: 'bgbig small' }, h('div', { class: 'fake other' }, '字号和颜色在这里预览'), h('div', { class: 'fake own' }, '我发的消息是这个颜色'));
   paintBg(preview, p.bg);
+  const nothing = (p.ui || 'nothing') !== 'classic';
   el.replaceChildren(
-    h('h3', null, '主题色'),
-    h('div', { class: 'accents' }, ACCENTS.map((a) => {
+    h('h3', null, '界面风格'),
+    seg(UIS, nothing ? 'nothing' : 'classic', 'ui'),
+    h('p', { class: 'muted small' }, nothing ? 'Nothing：黑白灰加一点红，点阵数字。人是黑白，Agent 是紫色。主题色在这个风格下固定。' : '经典：原来的圆润风格，可以自选主题色。'),
+    ...(nothing ? [] : [h('h3', null, '主题色')]),
+    h('div', { class: 'accents', hidden: nothing }, ACCENTS.map((a) => {
       const b = h('button', { type: 'button', class: 'accent-sw' + (p.accent === a.id ? ' on' : ''), title: a.name, 'aria-label': a.name, 'aria-pressed': String(p.accent === a.id), onclick: async () => (await savePrefs({ accent: a.id })) && renderLook(el) }, h('span', null), h('small', null, a.name));
       b.firstChild.style.background = a.c;
       return b;

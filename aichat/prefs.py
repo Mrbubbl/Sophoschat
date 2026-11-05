@@ -9,8 +9,9 @@ from .errors import ApiError
 
 ACCENTS = {"indigo", "teal", "blue", "violet", "rose", "orange", "green", "slate"}
 FONTS = {"s", "m", "l", "xl"}
+UIS = {"nothing", "classic"}
 RATES = {1.0, 1.25, 1.5, 2.0}
-DEFAULTS = {"accent": "teal", "font": "m", "bg": None, "dim": True, "voice_rate": 1.0, "autoplay": True, "collapse_long": True, "link_preview": True, "motion": True}
+DEFAULTS = {"ui": "nothing", "accent": "teal", "font": "m", "bg": None, "dim": True, "voice_rate": 1.0, "autoplay": True, "collapse_long": True, "link_preview": True, "motion": True}
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
@@ -36,6 +37,9 @@ def _check(key: str, value):
             return value
     elif key == "font":
         if value in FONTS:
+            return value
+    elif key == "ui":
+        if value in UIS:
             return value
     elif key == "bg":
         return chat.valid_bg(value)

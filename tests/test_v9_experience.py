@@ -108,6 +108,11 @@ def test_room_background_and_prefs(env):
     assert env.a.put("/api/me/prefs", json={"motion": 1}).status_code == 400
     assert env.a.put("/api/me/prefs", json={"evil": 1}).status_code == 400
     assert env.a.put("/api/me/prefs", json={"voice_rate": 3}).status_code == 400
+    # 界面风格：默认 Nothing，可以切回经典，只接受白名单值
+    assert me["prefs"]["ui"] == "nothing"
+    assert env.a.put("/api/me/prefs", json={"ui": "classic"}).json()["prefs"]["ui"] == "classic"
+    assert env.a.put("/api/me/prefs", json={"ui": "neon"}).status_code == 400
+    assert env.b.get("/api/me").json()["prefs"]["ui"] == "nothing"
     # bob 的不受影响
     assert env.b.get("/api/me").json()["prefs"]["accent"] == "teal"
 

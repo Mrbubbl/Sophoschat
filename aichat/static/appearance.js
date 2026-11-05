@@ -13,6 +13,10 @@ export const ACCENTS = [
   { id: 'green', name: '翠绿', c: '#16a34a' },
   { id: 'slate', name: '石墨', c: '#475569' },
 ];
+export const UIS = [
+  ['nothing', 'Nothing'],
+  ['classic', '经典'],
+];
 export const FONTS = [
   ['s', '小'],
   ['m', '标准'],
@@ -36,6 +40,9 @@ const root = document.documentElement;
 export function applyPrefs(p) {
   if (!p) return;
   S.prefs = p;
+  const ui = p.ui === 'classic' ? 'classic' : 'nothing';
+  root.dataset.ui = ui;
+  try { localStorage.setItem('sophos-ui', ui); } catch {}
   root.dataset.accent = ACCENTS.some((a) => a.id === p.accent) ? p.accent : 'teal';
   root.dataset.font = p.font || 'm';
   root.dataset.dim = p.dim ? '1' : '0';
