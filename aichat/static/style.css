@@ -870,3 +870,17 @@ html[data-motion='off'] *, html[data-motion='off'] *::before, html[data-motion='
   .set-nav { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); padding-right: 24px; scroll-behavior: smooth; }
 }
 .newchat .seg + input { margin-top: 10px; }
+
+/* Personal address book */
+.primary-tabs { display: flex; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.primary-tabs button { flex: 1; border: 0; border-radius: 9px; padding: 9px; background: transparent; color: var(--muted); cursor: pointer; }
+.primary-tabs button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.contacts-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.contact-toolbar { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.contact-list { overflow-y: auto; flex: 1; min-height: 0; padding: 0 10px; }
+.contact-item { display: flex; align-items: center; width: 100%; gap: 12px; text-align: left; background: transparent; color: var(--text); border: 0; padding: 12px 8px; border-radius: 10px; cursor: pointer; }
+.contact-item:hover { background: var(--accent-soft); }
+.contact-item small { display: block; margin-top: 4px; overflow-wrap: anywhere; }
+.contact-profile .btn { margin: 8px 8px 0 0; }
+.contact-avatar { padding: 0; border: 0; background: transparent; border-radius: 50%; cursor: pointer; }
+.contact-result:empty { display: none; }

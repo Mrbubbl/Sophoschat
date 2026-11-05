@@ -8,8 +8,8 @@ from typing import Any
 from . import auth, config, db, hub, security
 from .errors import ApiError
 
-GUIDE_VERSION = "0.9.0"
-PLATFORM_VERSION = "0.5.0"
+GUIDE_VERSION = "0.10.0"
+PLATFORM_VERSION = "0.6.0"
 
 
 # ---------------------------------------------------------------- 序列化与广播

@@ -381,8 +381,9 @@ async def _save_avatar(target_id: int, file: UploadFile) -> dict:
 
 
 def _avatar_changed(target_id: int) -> dict:
+    from .contacts import profile_audience
     u = auth.public_user(auth.get_user(target_id))
-    ids = [r["id"] for r in db.all("SELECT id FROM users WHERE role!='agent' AND disabled=0")]
+    ids = profile_audience(target_id)
     hub.publish(ids, {"type": "user.updated", "user": u})
     return {"user": u}
 
@@ -448,8 +449,44 @@ async def transcription_status(u=Depends(current_user)):
 
 @router.get("/api/users")
 async def users(u=Depends(current_user)):
+    from . import contacts
+    return {"users": contacts.list_for(uid(u))}
+
+
+@router.get('/api/admin/users')
+async def admin_users(u=Depends(member_manager)):
     rows = db.all("SELECT * FROM users WHERE disabled=0 AND role!='agent' ORDER BY id")
     return {"users": [auth.public_user(r) for r in rows if r["id"] != u["id"]]}
+
+
+class ContactIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    user_id: int
+
+
+@router.get('/api/contacts')
+async def contact_list(u=Depends(current_user)):
+    from . import contacts
+    return {'contacts': contacts.list_for(uid(u))}
+
+
+@router.get('/api/users/lookup')
+async def contact_lookup(username: str = Query(max_length=64), u=Depends(current_user)):
+    from . import contacts
+    return {'user': contacts.lookup(uid(u), username)}
+
+
+@router.post('/api/contacts')
+async def contact_add(body: ContactIn, u=Depends(current_user)):
+    from . import contacts
+    return {'contact': contacts.add(uid(u), body.user_id)}
+
+
+@router.delete('/api/contacts/{user_id}')
+async def contact_remove(user_id: int, u=Depends(current_user)):
+    from . import contacts
+    contacts.remove(uid(u), user_id)
+    return {'ok': True}
 
 
 @router.post("/api/users")

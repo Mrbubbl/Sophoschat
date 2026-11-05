@@ -3,7 +3,6 @@ import { get, post, patch, del } from './api.js';
 import { S, emit } from './store.js';
 import { showTimes, setShowTimes, h, icon, iconBtn, avatar, modal, toast, ask, copyText, fmtFull, fmtRel, squareJpeg } from './util.js';
 import { api } from './api.js';
-import { loadUsers } from './rooms.js';
 import { pushStatus, enablePush, disablePush } from './push.js';
 import { ACCENTS, FONTS, applyPrefs, savePrefs, bgPicker, paintBg, pickImage, uploadBgImage } from './appearance.js';
 import { setVoiceRate, setAutoNext } from './voice.js';
@@ -14,7 +13,7 @@ let lastToken = null; // 令牌只在刚创建时可见，只保留在内存里
 export function openSettings(tab = 'account') {
   const content = h('div', { class: 'set-content' });
   const nav = h('nav', { class: 'set-nav', role: 'tablist' });
-  const tabs = [['account', '账号与通知'], ['look', '外观与语音'], ['agent', 'Agent 接入'], ...(S.me.role==='owner'?[['tools','工具与 MCP']]:[]), ...(S.me.role === 'owner' || S.me.can_add_users ? [['members', '成员']] : []), ['about', '关于']];
+  const tabs = [['account', '账号与通知'], ['look', '外观与语音'], ['agent', 'Agent 接入'], ...(S.me.role==='owner'?[['tools','工具与 MCP']]:[]), ...(S.me.role === 'owner' || S.me.can_add_users ? [['members', '服务器成员管理']] : []), ['about', '关于']];
   const show = (t) => {
     nav.replaceChildren(...tabs.map(([k, l]) => h('button', { type: 'button', role: 'tab', class: k === t ? 'on' : '', 'aria-selected': String(k === t), onclick: () => show(k) }, l)));
     nav.querySelector('.on')?.scrollIntoView({ inline: 'center', block: 'nearest' });
@@ -293,7 +292,7 @@ function renderLook(el) {
 }
 
 async function renderMembers(el) {
-  await loadUsers();
+  const users = (await get('/api/admin/users')).users;
   const invBox = h('div', { class: 'inv-list' });
   renderInviteList(invBox);
   const u = h('input', { type: 'text', placeholder: '用户名（字母数字）', autocomplete: 'off', 'aria-label': '用户名' });
@@ -305,7 +304,7 @@ async function renderMembers(el) {
     h('h3', null, '已发出的邀请'),
     invBox,
     h('h3', null, '成员'),
-    h('div', { class: 'members big' }, [S.me, ...S.users].map((m) => h('div', { class: 'member' }, avatar(m, 34), h('div', null, h('b', null, m.display_name), h('div', { class: 'muted' }, '@' + m.username + (m.role === 'owner' ? ' · Owner' : m.can_add_users ? ' · 可添加成员' : ''))),
+    h('div', { class: 'members big' }, [S.me, ...users].map((m) => h('div', { class: 'member' }, avatar(m, 34), h('div', null, h('b', null, m.display_name), h('div', { class: 'muted' }, '@' + m.username + (m.role === 'owner' ? ' · Owner' : m.can_add_users ? ' · 可添加成员' : ''))),
       S.me.role === 'owner' && m.role === 'user' ? h('label', { class: 'perm', title: '允许这位成员添加新账号' }, h('input', { type: 'checkbox', checked: !!m.can_add_users, onchange: async (e) => {
         try {
           const r = await api('PATCH', `/api/users/${m.id}/permissions`, { can_add_users: e.target.checked });
@@ -321,7 +320,7 @@ async function renderMembers(el) {
     h('div', { class: 'form' }, u, d, p, h('button', { class: 'btn primary', type: 'button', onclick: async () => {
       try {
         await post('/api/users', { username: u.value, display_name: d.value || null, password: p.value });
-        toast('已添加，并自动建立了与 Agent 及现有成员的私聊');
+        toast('已创建账号及个人 Agent 私聊，联系人需手动添加');
         emit('rooms:reload');
         renderMembers(el);
       } catch (e) {

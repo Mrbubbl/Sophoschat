@@ -3,7 +3,7 @@ import types
 import pytest
 from fastapi.testclient import TestClient
 
-from aichat import auth, calls, chat, config, db, hub
+from aichat import auth, calls, chat, config, contacts, db, hub
 from aichat.main import create_app
 
 
@@ -17,6 +17,11 @@ class Env:
         self.agent_id = auth.agent_user_id()
         for u in (self.alice_id, self.bob_id, self.carol_id):
             chat.bootstrap_user(u)
+        # Existing regression scenarios use explicitly connected teammates.
+        for owner in (self.alice_id, self.bob_id, self.carol_id):
+            for target in (self.alice_id, self.bob_id, self.carol_id):
+                if owner != target:
+                    contacts.add(owner, target)
         self.a = TestClient(self.app)
         self.b = TestClient(self.app)
         self.c = TestClient(self.app)
@@ -26,6 +31,7 @@ class Env:
             assert r.status_code == 200, r.text
         # 两位主要使用者的私聊（含 Agent）
         self.dm = self.a.post("/api/rooms", json={"type": "dm", "user_id": self.bob_id}).json()["room"]["id"]
+        self.b.post('/api/rooms', json={'type':'dm','user_id':self.alice_id}).raise_for_status()
         self.agent_dm_a = chat.ensure_agent_dm(self.alice_id)
         self.agent_dm_b = chat.ensure_agent_dm(self.bob_id)
         self.cred_id, self.cred = auth.issue_credential("test")

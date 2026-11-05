@@ -38,6 +38,14 @@ CREATE TABLE IF NOT EXISTS users(
   disabled INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS contacts(
+  owner_user_id INTEGER NOT NULL REFERENCES users(id),
+  contact_user_id INTEGER NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(owner_user_id,contact_user_id),
+  CHECK(owner_user_id!=contact_user_id)
+);
+CREATE INDEX IF NOT EXISTS contacts_target ON contacts(contact_user_id);
 CREATE TABLE IF NOT EXISTS sessions(
   token_hash TEXT PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id),
@@ -292,10 +300,11 @@ CREATE TABLE IF NOT EXISTS invite_uses(
 );
 """
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 # 旧库升级：只做加列，不删不改已有数据
 _ADD_COLUMNS = [
+    ("room_members", "opened", "INTEGER NOT NULL DEFAULT 1"),
     ("sessions", "last_seen_at", "TEXT"),
     ("sessions", "ip", "TEXT"),
     ("attachments", "duration_ms", "INTEGER"),
@@ -339,7 +348,15 @@ def _migrate(c: sqlite3.Connection) -> None:
     # profile is the authoritative SDK purpose: chat / delivery / memory.
     from .schema_v7 import EXTRA_SCHEMA
     c.executescript(EXTRA_SCHEMA)
-    c.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+    from .contact_migration import apply
+    c.execute('BEGIN IMMEDIATE')
+    try:
+        apply(c)
+        c.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+        c.execute('COMMIT')
+    except BaseException:
+        c.execute('ROLLBACK')
+        raise
 
 
 def connect(path) -> sqlite3.Connection:

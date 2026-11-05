@@ -4,6 +4,7 @@ import { S, emit, on, room, roomTitle, roomSubtitle, otherHuman, agentUser, user
 import { buildEmojiPanel, QUICK } from './emoji.js';
 import { voiceSupported, startRecording, voicePlayer, recordingBar, MAX_MS, stopAllVoice, setAutoNext, transcriptHidden, toggleTranscript } from './voice.js';
 import { paintBg, effectiveBg, openRoomBg } from './appearance.js';
+import { openContact } from './contacts.js';
 import { linkCards } from './linkcard.js';
 import { openLayer } from './nav.js';
 import { enter } from './motion.js';
@@ -262,7 +263,7 @@ function renderHead() {
   const dateInput = h('input', { type: 'date', class: 'date-input', 'aria-label': '跳转到日期', max: new Date().toISOString().slice(0, 10), onchange: () => dateInput.value && jumpDate(dateInput.value) });
   els.head.replaceChildren(
     iconBtn('back', '返回聊天列表', () => ((S.view = 'list'), emit('view')), 'only-narrow'),
-    avatar(o || { id: r.id, display_name: roomTitle(r) }, 38),
+    r.type === 'dm' ? h('button', { type: 'button', class: 'contact-avatar', 'aria-label': '查看联系人资料', onclick: () => openContact(o) }, avatar(o, 38)) : avatar(o || { id: r.id, display_name: roomTitle(r) }, 38),
     h('div', { class: 'head-title' }, h('h1', null, roomTitle(r)), h('div', { class: 'sub' }, roomSubtitle(r), !S.online ? h('span', { class: 'offline-tag' }, ' · 连接中断') : null)),
     h('div', { class: 'grow' }),
     h(

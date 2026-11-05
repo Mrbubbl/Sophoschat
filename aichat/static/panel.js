@@ -2,6 +2,7 @@
 import { get, post, patch, del, qs } from './api.js';
 import { S, emit, on, room, roomTitle, userById, agentUser } from './store.js';
 import { h, icon, iconBtn, avatar, fmtFull, fmtTime, fmtDay, toast, ask, modal, toggle } from './util.js';
+import { openContact, loadContacts } from './contacts.js';
 import { resultItem } from './chatview.js';
 import { artifactCard } from './artifacts.js';
 import { openInviteDialog } from './invite.js';
@@ -450,15 +451,18 @@ async function setConsolidation(v) {
 }
 
 async function renderRoom() {
+  await loadContacts();
   const r = room(S.cur);
   const box = h('div', { class: 'rset' });
   box.append(h('h3', null, '成员'));
-  box.append(h('div', { class: 'members' }, r.members.map((m) => h('div', { class: 'member' }, avatar(m, 30), h('span', null, m.display_name), m.role === 'agent' ? h('span', { class: 'agent-badge' }, 'Agent') : null, r.type === 'group' && m.role !== 'agent' && m.id !== S.me.id ? iconBtn('close', '移出成员', () => removeMember(m)) : null))));
+  box.append(h('div', { class: 'members' }, r.members.map((m) => h('div', { class: 'member' }, avatar(m, 30),
+    m.role !== 'agent' && m.id !== S.me.id ? h('button', { class: 'link', type: 'button', onclick: () => openContact(m) }, m.display_name) : h('span', null, m.display_name),
+    m.role === 'agent' ? h('span', { class: 'agent-badge' }, 'Agent') : null, r.type === 'group' && m.role !== 'agent' && m.id !== S.me.id ? iconBtn('close', '移出成员', () => removeMember(m)) : null))));
   if (r.type === 'group' && (S.me.role === 'owner' || S.me.can_add_users)) {
     box.append(h('button', { class: 'btn small', type: 'button', onclick: () => openInviteDialog({ roomId: r.id }) }, icon('qr', 15), '扫码邀请新成员进群'));
   }
   if (r.type === 'group') {
-    const candidates = S.users.filter((u) => !r.members.some((m) => m.id === u.id));
+    const candidates = S.users.filter((u) => !u.disabled && !r.members.some((m) => m.id === u.id));
     if (candidates.length) {
       const sel = h('select', { 'aria-label': '添加成员' }, candidates.map((u) => h('option', { value: u.id }, u.display_name)));
       box.append(

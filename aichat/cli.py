@@ -47,7 +47,7 @@ def cmd_user(args):
     if args.action == "add":
         uid = auth.create_user(args.username, args.display or args.username, _password(args), "user")
         chat.bootstrap_user(uid)
-        print(f"已创建用户 {args.username}，并自动建立了与 Agent 的私聊以及与其他成员的私聊")
+        print(f"已创建用户 {args.username}，已建立个人 Agent 私聊；联系人需手动添加")
     elif args.action == "list":
         for r in db.all("SELECT * FROM users ORDER BY id"):
             print(f"{r['id']:>3}  {r['username']:<20} {r['role']:<6} {'已停用' if r['disabled'] else ''}")
@@ -129,6 +129,17 @@ def cmd_status(args):
     print(json.dumps(tasks.agent_status(), ensure_ascii=False, indent=2))
 
 
+def cmd_contacts_preview(args):
+    import sqlite3
+    from .contact_migration import preview
+    config.load(args.data_dir)
+    path = config.get().db_path.resolve()
+    if not path.exists():
+        raise SystemExit('数据库不存在；新安装无需迁移旧会话')
+    with sqlite3.connect(path.as_uri() + '?mode=ro', uri=True) as c:
+        print(json.dumps(preview(c), ensure_ascii=False, indent=2))
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="aichat", description="SophosChat 管理命令")
     p.add_argument("--data-dir", default=None, help="数据目录（默认 $AICHAT_DATA_DIR 或 ./data）")
@@ -183,6 +194,10 @@ def main(argv=None):
 
     s = sub.add_parser("status", help="Agent 状态")
     s.set_defaults(fn=cmd_status)
+
+    s = sub.add_parser('contacts-migration', help='只读预览升级时旧空私聊归档数量（启动服务自动迁移）')
+    s.add_argument('--preview', action='store_true', help='只读检查；此命令始终只预览')
+    s.set_defaults(fn=cmd_contacts_preview)
 
     args = p.parse_args(argv)
     if args.cmd == "user" and args.action in ("add", "passwd", "disable", "enable") and not args.username:

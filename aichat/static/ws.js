@@ -28,6 +28,9 @@ export function connect() {
       return;
     }
     switch (d.type) {
+      case 'contacts.updated':
+        emit('contacts:reload');
+        break;
       case 'hello':
         S.agent = d.agent;
         emit('agent', S.agent);

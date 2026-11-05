@@ -232,11 +232,16 @@ def create_dm(creator_id: int, other_id: int, include_agent: bool = True) -> int
     key = f"dm:{min(creator_id, other_id)}:{max(creator_id, other_id)}"
     r = db.one("SELECT id FROM rooms WHERE dm_key=?", (key,))
     if r:
+        db.run('UPDATE room_members SET opened=1,archived=0 WHERE room_id=? AND user_id=?', (r['id'], creator_id))
+        _publish_room_update(r['id'])
         return r["id"]
+    from . import contacts
+    contacts.require(creator_id, other_id)
     with db.tx():
         rid = db.insert("INSERT INTO rooms(type, created_by, created_at, dm_key) VALUES('dm', ?, ?, ?)", (creator_id, db.now(), key))
         _add_member(rid, creator_id)
         _add_member(rid, other_id)
+        db.run('UPDATE room_members SET opened=0 WHERE room_id=? AND user_id=?', (rid, other_id))
         agent = auth.agent_user_id()
         if include_agent and agent:
             _add_member(rid, agent)
@@ -253,6 +258,9 @@ def create_group(creator_id: int, title: str, member_ids_: list[int], include_ag
     ids = [creator_id] + [int(x) for x in member_ids_ if int(x) != creator_id]
     for uid in ids:
         _check_user(uid)
+        if uid != creator_id:
+            from . import contacts
+            contacts.require(creator_id, uid)
     with db.tx():
         rid = db.insert("INSERT INTO rooms(type, title, created_by, created_at) VALUES('group', ?, ?, ?)", (title, creator_id, db.now()))
         for uid in dict.fromkeys(ids):
@@ -266,12 +274,12 @@ def create_group(creator_id: int, title: str, member_ids_: list[int], include_ag
     return rid
 
 
-def _publish_room_update(room_id: int) -> None:
+def _publish_room_update(room_id: int, recipients=None) -> None:
     def push():
-        for uid in human_member_ids(room_id):
+        for uid in human_member_ids(room_id) if recipients is None else recipients:
             r = db.one(
                 "SELECT r.*, m.last_read_seq, m.archived, m.muted, m.history_from_seq, m.pinned, m.marked_unread, m.bg FROM rooms r "
-                "JOIN room_members m ON m.room_id=r.id WHERE r.id=? AND m.user_id=?",
+                "JOIN room_members m ON m.room_id=r.id WHERE r.id=? AND m.user_id=? AND (m.opened=1 OR r.max_seq>0 OR r.type!='dm')",
                 (room_id, uid),
             )
             if r:
@@ -283,7 +291,7 @@ def _publish_room_update(room_id: int) -> None:
 def list_rooms(user_id: int) -> list[dict]:
     rows = db.all(
         "SELECT r.*, m.last_read_seq, m.archived, m.muted, m.history_from_seq, m.pinned, m.marked_unread, m.bg FROM rooms r "
-        "JOIN room_members m ON m.room_id=r.id WHERE m.user_id=? AND m.left_at IS NULL",
+        "JOIN room_members m ON m.room_id=r.id WHERE m.user_id=? AND m.left_at IS NULL AND (m.opened=1 OR r.max_seq>0 OR r.type!='dm')",
         (user_id,),
     )
     out = [ser_room(r, user_id) for r in rows]
@@ -386,6 +394,10 @@ def add_member(room_id: int, actor_id: int, new_user_id: int, history: str = "fr
     if room["type"] != "group":
         raise ApiError(400, "not_group", "只有群聊可以添加成员")
     _check_user(new_user_id)
+    if db.one('SELECT 1 FROM room_members WHERE room_id=? AND user_id=? AND left_at IS NULL', (room_id, new_user_id)):
+        return get_room(room_id, actor_id)
+    from . import contacts
+    contacts.require(actor_id, new_user_id)
     with db.tx():
         _add_member(room_id, new_user_id, 0 if history == "all" else room["max_seq"])
         add_event(room_id, "member.changed", actor=actor_id)
@@ -447,7 +459,9 @@ def send_message(room_id: int, sender_id: int, body: str, client_msg_id: str | N
             if not a:
                 raise ApiError(400, "invalid_attachment", "附件无效或已被使用")
         seq = room["max_seq"] + 1
+        reveal = [r['user_id'] for r in db.all("SELECT m.user_id FROM room_members m JOIN users u ON u.id=m.user_id WHERE m.room_id=? AND m.left_at IS NULL AND u.role!='agent' AND (m.opened=0 OR m.archived=1)", (room_id,))]
         db.run("UPDATE rooms SET max_seq=? WHERE id=?", (seq, room_id))
+        db.run('UPDATE room_members SET opened=1,archived=0 WHERE room_id=? AND left_at IS NULL', (room_id,))
         mentions = parse_mentions(room_id, body)
         kind = "agent" if sender["role"] == "agent" else "human"
         mid = db.insert(
@@ -469,6 +483,8 @@ def send_message(room_id: int, sender_id: int, body: str, client_msg_id: str | N
             tasks.maybe_create_chat_task(room, msg, mentions)
         data = ser_message(msg)
         _notify(room_id, {"type": "message.created", "message": data})
+        if reveal:
+            _publish_room_update(room_id, reveal)
         _push_later(room, sender, data)
     return ser_message(msg, sender_id), False
 
@@ -815,7 +831,5 @@ def orphan_attachment_sweep() -> int:
 
 
 def bootstrap_user(new_user_id: int) -> None:
-    """新用户创建后：建立与 Agent 的私聊，并与已有的每位用户建立私聊（默认包含 Agent，可在会话设置里关闭）。"""
+    """Create only the user's private Agent entry; humans are added manually."""
     ensure_agent_dm(new_user_id)
-    for r in db.all("SELECT id FROM users WHERE role!='agent' AND disabled=0 AND id!=?", (new_user_id,)):
-        create_dm(new_user_id, r["id"], include_agent=True)

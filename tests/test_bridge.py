@@ -10,7 +10,7 @@ import httpx
 import pytest
 import uvicorn
 
-from aichat import auth, chat, config, db, hub
+from aichat import auth, chat, config, contacts, db, hub
 from aichat.main import create_app
 from aichat_bridge.adapters import CallbackAdapter, CommandAdapter, MockAdapter
 from aichat_bridge.prompts import extract_json
@@ -31,6 +31,10 @@ class Live:
         self.bob = auth.create_user("bob", "Bob", "password-bob", "user")
         for u in (self.alice, self.bob):
             chat.bootstrap_user(u)
+        contacts.add(self.alice, self.bob)
+        contacts.add(self.bob, self.alice)
+        chat.create_dm(self.alice, self.bob)
+        chat.create_dm(self.bob, self.alice)
         self.agent = auth.agent_user_id()
         self.cred_id, self.cred = auth.issue_credential("live")
         self.port = free_port()

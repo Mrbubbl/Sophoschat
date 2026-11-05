@@ -2,7 +2,7 @@
 
 面向双人和小群组的自部署聊天应用。AI 成员在被 @、私聊或收到定向回复时参与讨论，也能在聊天中交付 Markdown 文档和自包含 HTML 网页，保留改稿版本。后台记忆按会话隔离。
 
-当前版本 0.5.0，包含完整 Agent 执行环境、联网工具、外部 MCP、自主注册和服务器本地语音转文字。已实现范围见 [PRD V0.9](docs/PRD-v0.9.md)；最新 [PRD V0.10](docs/PRD-v0.10.md) 规划手动添加联系人与独立联系人列表，保持现有注册方式，功能尚待实现。上游 v9–v20 聊天体验和已实现功能见 [更新日志](docs/RELEASE_NOTES.md)，此前结果见 [V0.8 实施与验收](docs/IMPLEMENTATION-v0.8.md)。
+当前版本 0.6.0，包含手动添加联系人、独立联系人列表、完整 Agent 执行环境、联网工具、外部 MCP、自主注册和服务器本地语音转文字。最新需求见 [PRD V0.10](docs/PRD-v0.10.md)，本轮验证见 [V0.10 实施记录](docs/IMPLEMENTATION-v0.10.md)，全部变更见 [更新日志](docs/RELEASE_NOTES.md)。现有注册和邀请方式保持不变。
 
 本仓库基于 [Mrbubbl/Sophoschat](https://github.com/Mrbubbl/Sophoschat) 的 `e41aca1` 版本继续开发，保留原始 Git 历史。本轮未新增或更改项目许可证。
 
@@ -41,6 +41,10 @@ AI 工作由服务器托管的 Claude Agent SDK 执行。应用自动启动控�
 ## 注册、联网与外部 MCP
 
 登录页点击「没有账号？注册」，填写用户名、昵称和至少 8 位密码；注册后自动登录并建立 Agent 私聊。Owner 可在「设置 → 工具与 MCP」关闭注册。
+
+新账号不再与全站账号自动建立私聊。进入「联系人 → 添加联系人」，精确查找完整用户名，确认后手动添加；只添加到自己的列表，不自动互加。新建聊天/群聊从自己的联系人选择，已有聊天对象及群成员也可在资料卡添加。移除联系人保留聊天记录；联系人关系不等于拉黑。
+
+升级到 0.6.0 前先备份，可用 `python -m aichat.cli --data-dir /path/to/data contacts-migration --preview` 只读预览。首次启动自动归档旧的纯空双人私聊，不删除内容，也不自动导入联系人；有消息、任务或交付物的会话保留。详见 [部署说明](docs/DEPLOYMENT.md)。
 
 Agent 内置 internet_search、read_webpage 和联网 browser，默认搜索无需 Key。浏览器支持动态页面、点击、填写、JavaScript 和截图。公共搜索遇到限流/挑战时会明确报错，Owner 可切换 Bing、DuckDuckGo 或配置 Brave/Tavily/SearXNG。
 

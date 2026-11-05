@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aichat"
-version = "0.5.0"
+version = "0.6.0"
 description = "SophosChat — 私人聊天、服务端 Claude Agent SDK 与版本化文件交付"
 requires-python = ">=3.10"
 dependencies = [

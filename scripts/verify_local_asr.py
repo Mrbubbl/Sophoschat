@@ -65,6 +65,7 @@ uvicorn.run(app,host='127.0.0.1',port=int(os.environ['ASR_TEST_PORT']),log_level
             else: raise RuntimeError('test_server_not_ready')
             assert c.get('/api/transcription/status').json()['ready']
             other = c.post('/api/users', json={'username': 'asr_peer', 'display_name': '另一位成员', 'password': secrets.token_urlsafe(18)}).json()['user']
+            c.post('/api/contacts', json={'user_id': other['id']}).raise_for_status()
             room = c.post('/api/rooms', json={'type': 'dm', 'user_id': other['id'], 'include_agent': False}).json()['room']['id']
             assert c.post(f'/api/rooms/{room}/agent', json={'enabled': False}).status_code == 200
             agent_room = next(r['id'] for r in c.get('/api/rooms').json()['rooms'] if r['type'] == 'agent_dm')

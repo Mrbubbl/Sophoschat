@@ -80,6 +80,9 @@ def set_disabled(user_id: int, disabled: bool) -> None:
         if disabled:
             db.run("DELETE FROM sessions WHERE user_id=?", (user_id,))
         db.audit("system", "user.disable" if disabled else "user.enable", None, user_id=user_id)
+        from .contacts import profile_audience, public
+        from . import hub
+        db.on_commit(lambda: hub.publish(profile_audience(user_id), {'type': 'user.updated', 'user': public(get_user(user_id))}))
 
 
 def authenticate(username: str, password: str, ip: str = "") -> dict:

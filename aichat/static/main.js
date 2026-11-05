@@ -127,6 +127,8 @@ function notify(m) {
 function showLogin(msg) {
   disconnect();
   S.cur = null;
+  S.users = [];
+  S.rooms.clear();
   S.msgs.clear();
   S.tasks.clear();
   built = false;

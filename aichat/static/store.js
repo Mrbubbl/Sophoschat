@@ -1,11 +1,16 @@
 // 全局状态与事件总线
 const bus = new EventTarget();
-export const on = (type, fn) => bus.addEventListener(type, (e) => fn(e.detail));
+export const on = (type, fn) => {
+  const listener = e => fn(e.detail);
+  bus.addEventListener(type, listener);
+  return () => bus.removeEventListener(type, listener);
+};
 export const emit = (type, detail) => bus.dispatchEvent(new CustomEvent(type, { detail }));
 
 export const S = {
   me: null,
-  users: [], // 可发起私聊的其他用户
+  users: [], // 本人手动添加的联系人，不是服务器账号目录
+  listMode: 'chats',
   rooms: new Map(),
   cur: null, // 当前会话 id
   msgs: new Map(), // room_id -> { list, hasBefore, hasAfter }

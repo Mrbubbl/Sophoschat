@@ -2,6 +2,7 @@
 import { get, post, qs } from './api.js';
 import { S, emit, on, room, roomTitle, otherHuman, agentUser, userById } from './store.js';
 import { flipBefore, flipAfter } from './motion.js';
+import { initContacts, showContacts, loadContacts } from './contacts.js';
 import { $, h, icon, iconBtn, avatar, fmtRel, debounce, modal, toast, fmtDay, fmtTime, snippet } from './util.js';
 
 const els = {};
@@ -16,12 +17,18 @@ export function initRooms(container) {
   els.meBtn = h('button', { class: 'me', type: 'button', title: '账号与设置', onclick: () => emit('open-settings', 'account') });
   container.append(
     h('header', { class: 'left-head' }, els.meBtn, h('div', { class: 'grow' }), els.pill, iconBtn('plus', '新建聊天', openNewChat), iconBtn('gear', '设置', () => emit('open-settings'))),
+    h('div', { class: 'primary-tabs', role: 'tablist', 'aria-label': '主列表' },
+      h('button', { type: 'button', role: 'tab', 'aria-selected': 'true', onclick: () => setListMode('chats') }, '聊天'),
+      h('button', { type: 'button', role: 'tab', 'aria-selected': 'false', onclick: () => setListMode('contacts') }, '联系人')),
     h('div', { class: 'searchbar' }, icon('search', 16), els.search),
     els.tabs,
     els.list,
     els.results,
     els.conn
   );
+  initContacts(container);
+  els.container = container;
+  setListMode('chats');
   els.search.addEventListener('input', debounce(runSearch, 300));
   els.search.addEventListener('keydown', (e) => e.key === 'Escape' && ((els.search.value = ''), runSearch()));
   document.addEventListener('keydown', (e) => {
@@ -29,6 +36,7 @@ export function initRooms(container) {
       e.preventDefault();
       S.view = 'list';
       emit('view');
+      setListMode('chats');
       els.search.focus();
     }
   });
@@ -60,6 +68,7 @@ export function initRooms(container) {
     }
   });
   on('agent', renderPill);
+  on('open-room', () => setListMode('chats'));
   on('online', (v) => (els.conn.hidden = v));
   renderPill();
   renderMe();
@@ -73,7 +82,18 @@ export async function loadRooms() {
 }
 
 export async function loadUsers() {
-  S.users = (await get('/api/users')).users;
+  await loadContacts();
+}
+
+function setListMode(mode) {
+  S.listMode = mode;
+  const contacts = mode === 'contacts';
+  els.container.querySelectorAll('.primary-tabs button').forEach((b, i) => b.setAttribute('aria-selected', String(i === (contacts ? 1 : 0))));
+  els.search.parentElement.hidden = els.tabs.hidden = els.list.hidden = contacts;
+  els.results.hidden = true;
+  showContacts(contacts);
+  if (contacts) loadUsers().catch(e => toast(e.message, 'err'));
+  if (!contacts && els.search.value) runSearch();
 }
 
 function preview(m) {
@@ -236,6 +256,7 @@ async function markRoomRead(r) {
 
 // ------------------------------------------------------------------ 全局搜索
 async function runSearch() {
+  if (S.listMode === 'contacts') return;
   const q = els.search.value.trim();
   if (!q) {
     els.results.hidden = true;
@@ -249,6 +270,7 @@ async function runSearch() {
   els.results.replaceChildren(h('div', { class: 'empty' }, '搜索中…'));
   try {
     const { messages } = await get('/api/search' + qs({ q, limit: 50 }));
+    if (S.listMode === 'contacts') return;
     els.results.replaceChildren(
       ...(messages.length
         ? messages.map((m) => {
@@ -268,7 +290,8 @@ async function runSearch() {
 }
 
 // ------------------------------------------------------------------ 新建聊天
-export function openNewChat() {
+export async function openNewChat() {
+  try { await loadUsers(); } catch (e) { return toast(e.message, 'err'); }
   let mode = 'dm';
   const body = h('div', { class: 'newchat' });
   // Agent 默认加入新聊天（只在被 @ 时回复）；开关只放在会话设置里
@@ -285,7 +308,8 @@ export function openNewChat() {
         h('button', { type: 'button', class: mode === 'group' ? 'on' : '', onclick: () => ((mode = 'group'), render()) }, '群聊')
       ),
       mode === 'group' ? title : null,
-      h('div', { class: 'pick-list' }, S.users.length ? S.users.map((u) => userRow(u)) : h('div', { class: 'empty' }, '还没有其他用户。请 Owner 在 设置 → 成员 里添加。')),
+      h('input', { type: 'search', placeholder: '搜索联系人', 'aria-label': '选择聊天联系人', oninput: e => body.querySelectorAll('.pick').forEach(row => { row.hidden = !row.textContent.toLowerCase().includes(e.target.value.toLowerCase()); }) }),
+      h('div', { class: 'pick-list' }, S.users.some(u => !u.disabled) ? S.users.filter(u => !u.disabled).map((u) => userRow(u)) : h('div', { class: 'empty' }, '还没有联系人，请先在「联系人」中按用户名添加。')),
       ].filter(Boolean)
     );
   };
@@ -310,9 +334,9 @@ export function openNewChat() {
         res = await post('/api/rooms', { type: 'group', title: title.value.trim(), member_ids: [...picks], include_agent: withAgent.checked });
       }
       S.rooms.set(res.room.id, res.room);
-      close();
       renderRooms();
       emit('open-room', { id: res.room.id });
+      close();
     } catch (e) {
       toast(e.message, 'err');
     }
