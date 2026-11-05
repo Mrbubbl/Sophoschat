@@ -1,4 +1,5 @@
 // A private address book, independent of conversations and server account management.
+import { stagger } from './motion.js';
 import { get, post, del } from './api.js';
 import { S, emit, on } from './store.js';
 import { h, avatar, modal, toast, ask } from './util.js';
@@ -31,7 +32,7 @@ export function initContacts(container) {
 
 export function showContacts(show) {
   if (box) box.hidden = !show;
-  if (show) renderContacts();
+  if (show) { renderContacts(); list && stagger(list.querySelectorAll('.contact-item')); }
 }
 
 function renderContacts() {

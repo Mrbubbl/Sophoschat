@@ -1,7 +1,7 @@
 // 左侧：会话列表、全局搜索、新建聊天
 import { get, post, qs } from './api.js';
 import { S, emit, on, room, roomTitle, otherHuman, agentUser, userById } from './store.js';
-import { flipBefore, flipAfter } from './motion.js';
+import { flipBefore, flipAfter, stagger, enter } from './motion.js';
 import { initContacts, showContacts, loadContacts } from './contacts.js';
 import { $, h, icon, iconBtn, avatar, fmtRel, debounce, modal, toast, fmtDay, fmtTime, snippet } from './util.js';
 
@@ -95,6 +95,8 @@ function setListMode(mode) {
   showContacts(contacts);
   if (contacts) loadUsers().catch(e => toast(e.message, 'err'));
   if (!contacts && els.search.value) runSearch();
+  if (!contacts && els.mode && els.mode !== mode) stagger(els.list.children);
+  els.mode = mode;
 }
 
 function preview(m) {
@@ -143,6 +145,9 @@ export function renderRooms() {
   const flip = flipBefore(els.list, '.room-item', 'rid');
   els.list.replaceChildren(...(list.length ? list.map(roomItem) : [h('div', { class: 'empty' }, S.showArchived ? '没有已归档的聊天' : '还没有聊天，点右上角 ＋ 开始')]));
   flipAfter(els.list, '.room-item', 'rid', flip);
+  // 首次渲染或切换"聊天/已归档"时，列表依次浮现；平时的增量更新只做位置滑动
+  const key = S.showArchived ? 'archived' : 'active';
+  if (els.listKey !== key) { els.listKey = key; stagger(els.list.children); }
   document.title = (unreadActive ? `(${unreadActive}) ` : '') + 'SophosChat';
   emit('unread', unreadActive);
 }

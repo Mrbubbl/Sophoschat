@@ -1,4 +1,5 @@
 // 设置：账号、Agent 接入引导（P0）、成员管理（Owner）
+import { enter } from './motion.js';
 import { get, post, patch, del } from './api.js';
 import { S, emit } from './store.js';
 import { showTimes, setShowTimes, h, icon, iconBtn, avatar, modal, toast, ask, copyText, fmtFull, fmtRel, squareJpeg } from './util.js';
@@ -19,6 +20,7 @@ export function openSettings(tab = 'account') {
     nav.querySelector('.on')?.scrollIntoView({ inline: 'center', block: 'nearest' });
     content.replaceChildren(h('div', { class: 'loading' }, '加载中…'));
     ({ account: renderAccount, look: renderLook, agent: renderAgent, tools:renderTools, members: renderMembers, about: renderAbout })[t](content);
+    enter(content, 'rise');
   };
   const close = modal({ title: '设置', wide: true, body: h('div', { class: 'settings' }, nav, content) });
   window.__closeSettings = close;

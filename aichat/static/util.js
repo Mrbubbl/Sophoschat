@@ -394,12 +394,13 @@ export function toast(msg, kind = '') {
 
 export function modal({ title, body, actions = [], wide = false, sheet = false, onClose }) {
   let closed = false;
+  const slide = () => window.innerWidth <= 700 && (sheet || (wide && document.documentElement.dataset.ui !== 'classic'));
   const close = () => {
     if (closed) return;
     closed = true;
     document.removeEventListener('keydown', onKey, true);
     overlay.style.pointerEvents = 'none';
-    exit(card, sheet && window.innerWidth <= 700 ? 'sheet' : 'pop');
+    exit(card, slide() ? 'sheet' : 'pop');
     exit(overlay, 'fade').then(() => overlay.remove());
     leave(); // 同步浏览器历史（返回键）
     onClose && onClose();
@@ -422,7 +423,7 @@ export function modal({ title, body, actions = [], wide = false, sheet = false, 
   const overlay = h('div', { class: 'overlay', onmousedown: (e) => e.target === overlay && close() }, card);
   document.body.append(overlay);
   enter(overlay, 'fade');
-  enter(card, sheet && window.innerWidth <= 700 ? 'sheet' : 'pop');
+  enter(card, slide() ? 'sheet' : 'pop');
   document.addEventListener('keydown', onKey, true);
   const first = card.querySelector('input,textarea,select,button.primary');
   first && first.focus();

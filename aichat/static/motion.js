@@ -72,3 +72,9 @@ export function flipAfter(container, selector, key, before) {
     el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: DUR.medium, easing: EASE.standard });
   }
 }
+
+// 依次进入：列表首屏、切换分组时用，前几项错开一点点，之后的直接出现（避免长列表拖沓）
+export function stagger(nodes, kind = 'rise', step = 26, max = 10) {
+  if (!motionOn()) return;
+  [...nodes].slice(0, max).forEach((el, i) => enter(el, kind, { delay: i * step }));
+}

@@ -9,15 +9,15 @@ html[data-ui='nothing'] {
   --bg: #f2f2f0;
   --panel: #ffffff;
   --panel2: #f2f2f0;
-  --text: #0a0a0a;
+  --text: #18181a;
   --muted: #6b6b68;
   --line: #e6e6e2;
-  --ink: #0a0a0a;
+  --ink: #232326;
   --on-ink: #ffffff;
   --accent: #d71921;
   --accent-ink: #ffffff;
   --accent-soft: #e9e9e5;
-  --own: #0a0a0a;
+  --own: #2b2b2e;
   --other: #ffffff;
   --agent-bg: #ece8ff;
   --agent-ink: #5b3df5;
@@ -31,19 +31,19 @@ html[data-ui='nothing'] {
 }
 @media (prefers-color-scheme: dark) {
   html[data-ui='nothing'] {
-    --bg: #0b0b0b;
-    --panel: #141414;
-    --panel2: #1b1b1b;
+    --bg: #151517;
+    --panel: #1d1d20;
+    --panel2: #242427;
     --text: #f2f2f0;
     --muted: #9a9a96;
-    --line: #262626;
-    --ink: #f2f2f0;
-    --on-ink: #0a0a0a;
+    --line: #303034;
+    --ink: #e8e8e4;
+    --on-ink: #18181a;
     --accent: #ff3b44;
     --accent-ink: #ffffff;
-    --accent-soft: #232323;
-    --own: #f2f2f0;
-    --other: #1f1f1f;
+    --accent-soft: #2a2a2e;
+    --own: #e8e8e4;
+    --other: #2a2a2e;
     --agent-bg: #2a2352;
     --agent-ink: #b9a9ff;
     --warn: #f6d77a;
@@ -93,7 +93,7 @@ html[data-ui='nothing'] .toast.err { background: var(--danger); color: #fff; }
 html[data-ui='nothing'] .logo-mark { background: var(--ink); color: var(--on-ink); }
 
 /* ---------- 头像：人是单色，Agent 是紫色加点阵星 ---------- */
-html[data-ui='nothing'] .avatar:not(.agent):not(.has-img) { background: #e4e1da; color: #0a0a0a; font-weight: 600; }
+html[data-ui='nothing'] .avatar:not(.agent):not(.has-img) { background: #e4e1da; color: #232326; font-weight: 600; }
 @media (prefers-color-scheme: dark) { html[data-ui='nothing'] .avatar:not(.agent):not(.has-img) { background: #2a2a2a; color: #f2f2f0; } }
 html[data-ui='nothing'] .avatar.agent.logo { background: #5b3df5 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 22'%3E%3Cg fill='%23fff'%3E%3Ccircle cx='11' cy='2' r='1.7'/%3E%3Ccircle cx='11' cy='6.5' r='1.7'/%3E%3Ccircle cx='2' cy='11' r='1.7'/%3E%3Ccircle cx='6.5' cy='11' r='1.7'/%3E%3Ccircle cx='11' cy='11' r='1.7'/%3E%3Ccircle cx='15.5' cy='11' r='1.7'/%3E%3Ccircle cx='20' cy='11' r='1.7'/%3E%3Ccircle cx='11' cy='15.5' r='1.7'/%3E%3Ccircle cx='11' cy='20' r='1.7'/%3E%3C/g%3E%3C/svg%3E") center / 56% no-repeat; }
 html[data-ui='nothing'] .avatar.agent.logo img { display: none; }
@@ -133,7 +133,7 @@ html[data-ui='nothing'] .primary-tabs button[aria-selected='true'] { background:
 @media (max-width: 899px) {
   html[data-ui='nothing'] .primary-tabs { order: 99; background: var(--panel); border-top: 1px solid var(--line); padding: 8px 12px calc(10px + env(safe-area-inset-bottom)); margin-top: auto; }
   html[data-ui='nothing'] .primary-tabs button { height: 46px; font-size: 14px; }
-  html[data-ui='nothing'] .primary-tabs button[aria-selected='true'] { background: var(--accent-soft); color: var(--text); font-weight: 700; }
+  html[data-ui='nothing'] .primary-tabs button[aria-selected='true'] { background: transparent; color: var(--text); font-weight: 700; }
   html[data-ui='nothing'] .primary-tabs button[aria-selected='true']::after { content: ''; display: block; width: 18px; height: 3px; border-radius: 2px; background: var(--accent); margin: 4px auto -2px; }
   html[data-ui='nothing'] .primary-tabs button::after { content: ''; display: block; height: 3px; margin: 4px auto -2px; }
 }
@@ -223,7 +223,7 @@ html[data-ui='nothing'] .steps > li::before { background: var(--ink); color: var
 
 /* Agent 用量卡：黑底，大点阵金额，20 个点的用量条 */
 .usage-card { display: none; }
-html[data-ui='nothing'] .usage-card { display: flex; flex-direction: column; gap: 12px; background: #0a0a0a; color: #f2f2f0; border-radius: 22px; padding: 16px 18px; margin: 8px 0 14px; }
+html[data-ui='nothing'] .usage-card { display: flex; flex-direction: column; gap: 12px; background: #232326; color: #f2f2f0; border-radius: 22px; padding: 16px 18px; margin: 8px 0 14px; }
 @media (prefers-color-scheme: dark) { html[data-ui='nothing'] .usage-card { background: #1b1b1b; } }
 html[data-ui='nothing'] .usage-card .uc-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 html[data-ui='nothing'] .usage-card .uc-top small { color: #b3b3ae; font-size: 13px; }
@@ -270,3 +270,63 @@ html[data-ui='nothing'] .set-nav button { height: 38px; padding: 0 16px; display
 }
 html[data-ui='nothing'] .set-content .form .btn { align-self: flex-start; }
 html[data-ui='nothing'] .set-nav { padding-bottom: 6px; }
+
+/* ================= 动效与触感（Nothing） =================
+   原则：进入用减速曲线、退出用加速曲线；只动 transform / opacity；
+   小控件 150ms、菜单 200–240ms、整屏 380ms；系统"减少动态效果"或设置关闭时全部停用（见 style.css 末尾）。 */
+
+/* 去掉移动端点按时的灰色高亮框，改为按下时的轻微缩放 */
+html[data-ui='nothing'] button, html[data-ui='nothing'] a, html[data-ui='nothing'] label, html[data-ui='nothing'] [role='button'] { -webkit-tap-highlight-color: transparent; }
+html[data-ui='nothing'] :focus:not(:focus-visible) { outline: none; }
+
+/* 底部导航：不画选中底块，只有红色指示条从中间展开，文字加粗变深 */
+html[data-ui='nothing'] .primary-tabs button { transition: color var(--d-fast) var(--ease-standard), background-color var(--d-short) var(--ease-standard), transform var(--d-fast) var(--ease-standard); }
+html[data-ui='nothing'] .primary-tabs button:active { transform: scale(0.94); }
+@media (max-width: 899px) {
+  html[data-ui='nothing'] .primary-tabs button::after { width: 18px; border-radius: 2px; background: var(--accent); transform: scaleX(0); opacity: 0; transition: transform var(--d-short) var(--ease-decel), opacity var(--d-fast) var(--ease-standard); }
+  html[data-ui='nothing'] .primary-tabs button[aria-selected='true']::after { transform: scaleX(1); opacity: 1; }
+}
+
+/* 分段控件、分组标签、设置导航：选中态颜色平滑过渡 */
+html[data-ui='nothing'] .seg button, html[data-ui='nothing'] .tab, html[data-ui='nothing'] .set-nav button { transition: background-color var(--d-short) var(--ease-standard), color var(--d-short) var(--ease-standard), border-color var(--d-short) var(--ease-standard), transform var(--d-fast) var(--ease-standard); }
+html[data-ui='nothing'] .seg button:active, html[data-ui='nothing'] .tab:active, html[data-ui='nothing'] .set-nav button:active { transform: scale(0.95); }
+
+/* 输入框获得焦点：边框颜色渐变 */
+html[data-ui='nothing'] input, html[data-ui='nothing'] textarea, html[data-ui='nothing'] select { transition: border-color var(--d-fast) var(--ease-standard), background-color var(--d-fast) var(--ease-standard); }
+
+/* 勾选框：勾上时轻轻弹一下 */
+@keyframes n-tick { 0% { transform: scale(0.7); } 60% { transform: scale(1.15); } 100% { transform: none; } }
+html[data-ui='nothing'] input[type='checkbox']:checked, html[data-ui='nothing'] input[type='radio']:checked { animation: n-tick var(--d-short) var(--ease-standard); }
+
+/* 下拉菜单 / 右键菜单：整体从锚点展开，菜单项依次浮现 */
+@keyframes n-item { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@media (max-width: 700px) {
+  html[data-ui='nothing'] .head-actions.open .acts-list { animation: pop var(--d-short) var(--ease-decel); }
+  html[data-ui='nothing'] .head-actions.open .acts-list > * { animation: n-item var(--d-short) var(--ease-decel) backwards; }
+}
+html[data-ui='nothing'] .ctxmenu > * { animation: n-item var(--d-short) var(--ease-decel) backwards; }
+html[data-ui='nothing'] :is(.head-actions.open .acts-list, .ctxmenu) > :nth-child(2) { animation-delay: 20ms; }
+html[data-ui='nothing'] :is(.head-actions.open .acts-list, .ctxmenu) > :nth-child(3) { animation-delay: 40ms; }
+html[data-ui='nothing'] :is(.head-actions.open .acts-list, .ctxmenu) > :nth-child(4) { animation-delay: 60ms; }
+html[data-ui='nothing'] :is(.head-actions.open .acts-list, .ctxmenu) > :nth-child(5) { animation-delay: 80ms; }
+html[data-ui='nothing'] :is(.head-actions.open .acts-list, .ctxmenu) > :nth-child(6) { animation-delay: 100ms; }
+html[data-ui='nothing'] :is(.head-actions.open .acts-list, .ctxmenu) > :nth-child(n+7) { animation-delay: 120ms; }
+html[data-ui='nothing'] .act-toggle svg { transition: transform var(--d-short) var(--ease-decel); }
+html[data-ui='nothing'] .head-actions.open .act-toggle svg { transform: rotate(90deg); }
+
+/* 会话列表、联系人：按下时底色淡入，松手淡出 */
+html[data-ui='nothing'] .room-item, html[data-ui='nothing'] .contact-item { transition: background-color var(--d-short) var(--ease-standard), transform var(--d-fast) var(--ease-standard); }
+html[data-ui='nothing'] .room-item:active, html[data-ui='nothing'] .contact-item:active { background: var(--panel2); }
+
+/* 未读数：出现时弹入（只在徽标第一次出现时触发） */
+@keyframes n-badge { 0% { transform: scale(0.4); opacity: 0; } 70% { transform: scale(1.12); opacity: 1; } 100% { transform: none; } }
+html[data-ui='nothing'] .room-item .badge { animation: n-badge var(--d-short) var(--ease-standard); }
+
+/* 设置页：开关行、分区标题的红点 */
+html[data-ui='nothing'] .set-content .switch-row { transition: border-color var(--d-short) var(--ease-standard), background-color var(--d-short) var(--ease-standard); }
+html[data-ui='nothing'] .set-content .switch-row:has(input:checked) { border-color: color-mix(in srgb, var(--ink) 35%, var(--line)); }
+html[data-ui='nothing'] .bgsw .bgprev, html[data-ui='nothing'] .accent-sw span { transition: outline-color var(--d-short) var(--ease-standard), transform var(--d-fast) var(--ease-standard); }
+html[data-ui='nothing'] .bgsw:active .bgprev { transform: scale(0.95); }
+
+/* 发送 / 录音按钮、输入框外框 */
+html[data-ui='nothing'] .send { transition: background-color var(--d-short) var(--ease-standard), color var(--d-short) var(--ease-standard), transform var(--d-fast) var(--ease-standard); }
