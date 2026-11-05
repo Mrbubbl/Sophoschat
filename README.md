@@ -2,7 +2,7 @@
 
 面向双人和小群组的自部署聊天应用。AI 成员在被 @、私聊或收到定向回复时参与讨论，也能在聊天中交付 Markdown 文档和自包含 HTML 网页，保留改稿版本。后台记忆按会话隔离。
 
-当前版本 0.5.0，包含完整 Agent 执行环境、联网工具、外部 MCP、自主注册和服务器本地语音转文字。需求见 [PRD V0.9](docs/PRD-v0.9.md)，上游 v9–v20 聊天体验和本次功能见 [更新日志](docs/RELEASE_NOTES.md)，此前结果见 [V0.8 实施与验收](docs/IMPLEMENTATION-v0.8.md)。
+当前版本 0.5.0，包含完整 Agent 执行环境、联网工具、外部 MCP、自主注册和服务器本地语音转文字。已实现范围见 [PRD V0.9](docs/PRD-v0.9.md)；最新 [PRD V0.10](docs/PRD-v0.10.md) 规划手动添加联系人与独立联系人列表，保持现有注册方式，功能尚待实现。上游 v9–v20 聊天体验和已实现功能见 [更新日志](docs/RELEASE_NOTES.md)，此前结果见 [V0.8 实施与验收](docs/IMPLEMENTATION-v0.8.md)。
 
 本仓库基于 [Mrbubbl/Sophoschat](https://github.com/Mrbubbl/Sophoschat) 的 `e41aca1` 版本继续开发，保留原始 Git 历史。本轮未新增或更改项目许可证。
 
