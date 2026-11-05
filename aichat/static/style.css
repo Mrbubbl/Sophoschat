@@ -160,7 +160,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); outline
 .avatar-gap { width: 32px; flex: none; }
 .bwrap { position: relative; max-width: min(72%, 640px); display: flex; flex-direction: column; min-width: 0; }
 .row.own .bwrap { align-items: flex-end; }
-.bubble { background: var(--other); border-radius: 16px; border-bottom-left-radius: 5px; padding: 8px 12px 5px; box-shadow: 0 1px 1.5px rgba(16, 24, 40, 0.08); word-break: break-word; overflow-wrap: anywhere; min-width: 0; }
+.bubble { background: var(--other); border-radius: 16px; border-bottom-left-radius: 5px; padding: 8px 12px 5px; box-shadow: 0 1px 1.5px rgba(16, 24, 40, 0.08); word-break: break-word; overflow-wrap: anywhere; min-width: 0; max-width: 100%; }
 .row.own .bubble { background: var(--own); border-bottom-left-radius: 16px; border-bottom-right-radius: 5px; }
 .row.pending .bubble { opacity: 0.7; }
 .row.hl .bubble { animation: hl 2.2s ease-out; }
@@ -178,9 +178,12 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); outline
 .md pre code { background: none; padding: 0; }
 .mention { color: var(--accent); font-weight: 600; }
 .mention.agent { color: var(--agent-ink); }
-.reply { display: flex; flex-direction: column; text-align: left; width: 100%; border: 0; border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--muted) 13%, transparent); border-radius: 8px; padding: 4px 8px; margin-bottom: 4px; font-size: 12.5px; gap: 0; }
+.reply { display: flex; flex-direction: column; text-align: left; width: 100%; min-width: 0; max-width: 100%; border: 0; border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--muted) 13%, transparent); border-radius: 8px; padding: 4px 8px; margin-bottom: 4px; font-size: 12.5px; gap: 0; }
 .reply b { color: var(--accent); }
-.reply span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+/* Both the author and excerpt must shrink inside the bounded bubble, including
+   own messages whose wrapper uses align-items:flex-end. Keep the source intact. */
+.reply > b, .reply > span { display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reply span { color: var(--muted); }
 .att-img { display: block; max-width: min(100%, 320px); max-height: 320px; border-radius: 10px; margin-top: 4px; cursor: zoom-in; object-fit: cover; }
 .att-file { display: flex; align-items: center; gap: 8px; text-decoration: none; color: inherit; background: color-mix(in srgb, var(--muted) 13%, transparent); border-radius: 10px; padding: 8px 10px; margin-top: 4px; }
 .att-file .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
@@ -204,9 +207,11 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); outline
 .composer-row { display: flex; align-items: flex-end; gap: 6px; }
 .send { width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--accent); color: var(--accent-ink); display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .send:hover { filter: brightness(1.08); }
-.replybar, .attbar { display: flex; align-items: center; gap: 8px; background: var(--panel2); border-left: 3px solid var(--accent); border-radius: 8px; padding: 4px 6px 4px 10px; margin-bottom: 6px; font-size: 13px; color: var(--muted); }
+.replybar, .attbar { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; background: var(--panel2); border-left: 3px solid var(--accent); border-radius: 8px; padding: 4px 6px 4px 10px; margin-bottom: 6px; font-size: 13px; color: var(--muted); }
 .rb-text { flex: 1; min-width: 0; display: flex; gap: 8px; }
-.rb-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb-text b { flex: 0 1 auto; min-width: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb-text span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.replybar > svg, .replybar > .icon-btn { flex-shrink: 0; }
 .attbar .fname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .mention-pop { position: absolute; left: 56px; bottom: 100%; margin-bottom: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); min-width: 240px; max-width: 90%; overflow: hidden; z-index: 20; }
 .mention-pop button { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; text-align: left; padding: 8px 12px; }
