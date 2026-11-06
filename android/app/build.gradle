@@ -1,0 +1,35 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.sophoschat.app'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'com.sophoschat.app'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+    signingConfigs {
+        // 仓库里不放任何密钥。配置了 GitHub Secrets 时用你自己的发布密钥（可覆盖升级）；
+        // 没配置时用构建机临时生成的调试签名（能安装，但换一次构建要先卸载旧版）。
+        if (System.getenv('KEYSTORE_PATH')) {
+            release {
+                storeFile file(System.getenv('KEYSTORE_PATH'))
+                storePassword System.getenv('KEYSTORE_PASSWORD')
+                keyAlias System.getenv('KEY_ALIAS') ?: 'sophoschat'
+                keyPassword System.getenv('KEYSTORE_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig System.getenv('KEYSTORE_PATH') ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

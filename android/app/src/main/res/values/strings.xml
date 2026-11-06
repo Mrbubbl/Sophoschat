@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">SophosChat</string>
+    <!-- 服务器地址：以后换域名只需改这里 -->
+    <string name="server_url">https://srv822444.hstgr.cloud:8080/</string>
+</resources>
