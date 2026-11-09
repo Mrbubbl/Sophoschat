@@ -178,14 +178,28 @@ async function renderAgent(el) {
         models[name] = field; advanced.append(h('label', { class: 'agent-field' }, name, field));
       }
       form.append(advanced);
+      // 第二套接入（高级）：交付文件、或消息以 /pro 开头时使用
+      const proModel = h('input', { value: cfg.premium_model || '', placeholder: '例如 claude-opus-…', 'aria-label': '高级模型 ID' });
+      const proUrl = h('input', { value: cfg.premium_base_url || '', placeholder: '留空 = 官方地址', 'aria-label': '高级网关地址' });
+      const proKey = h('input', { type: 'password', autocomplete: 'new-password', placeholder: cfg.premium_configured ? '已保存，留空保持' : '高级接入的 API Key', 'aria-label': '高级接入 API Key' });
+      const pro = h('details', { open: !!cfg.premium_configured },
+        h('summary', null, '高级接入（第二套 API，可选）'),
+        h('p', { class: 'note' }, '上面是“日常”接入（聊天、记忆整理，选便宜的）。这里填一套更强的模型：交付文件时自动使用；平时在消息开头写 /pro 也会用它回答这一条。全部留空则只用日常接入。'),
+        h('label', { class: 'agent-field' }, h('span', null, '高级模型 ID'), proModel),
+        h('label', { class: 'agent-field' }, h('span', null, '高级网关地址'), proUrl),
+        h('label', { class: 'agent-field' }, h('span', null, '高级 API Key'), proKey));
+      form.append(pro);
       form.append(h('button', { class: 'btn primary', type: 'button', onclick: async () => {
         try {
           const values = { model: model.value.trim(), base_url: url.value.trim(), enabled: enabled.checked, memory_enabled: memory.checked,
             ...Object.fromEntries(Object.entries(numeric).map(([k,v]) => [k, Number(v.value)])),
             models: Object.fromEntries(Object.entries(models).filter(([k,v]) => v.value.trim()).map(([k,v]) => [k, v.value.trim()])) };
+          values.premium_model = proModel.value.trim(); values.premium_base_url = proUrl.value.trim();
           if (key.value) values.api_key = key.value;
+          if (proKey.value) values.premium_api_key = proKey.value;
+          if (!values.premium_model) values.premium_api_key = '';
           await api('PUT', '/api/agent/settings', values);
-          key.value = '';
+          key.value = ''; proKey.value = '';
           toast('已保存；正在执行的旧配置任务已停止，新任务使用新设置');
           await renderAgent(el);
         } catch(e) { toast(e.message, 'err'); }

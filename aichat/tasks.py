@@ -67,9 +67,12 @@ def maybe_create_chat_task(room, msg, mention_ids: list[int]) -> int | None:
     triggered = room["type"] == "agent_dm" or agent["user_id"] in mention_ids or (directed and directed["sender_id"] == agent["user_id"])
     if not triggered:
         return None
+    import re
+    # 消息以 /pro 开头（可在 @Agent 之后）= 这一条交给“高级”接入处理；未配置高级接入时自动忽略
+    pro = bool(re.match(r"^\s*(?:@\S+\s+)*/pro\b", (msg["body"] if "body" in msg.keys() else "") or ""))
     tid = db.insert(
         "INSERT INTO agent_tasks(room_id, kind, trigger_message_id, trigger_message_version, status, created_at, expires_at, params) VALUES(?,?,?,?,?,?,?,?)",
-        (room["id"], "chat", msg["id"], msg["version"], "queued", db.now(), db.after(config.get().chat_task_ttl), "{}"),
+        (room["id"], "chat", msg["id"], msg["version"], "queued", db.now(), db.after(config.get().chat_task_ttl), db.jl({"tier": "pro"} if pro else {})),
     )
     db.run("UPDATE agent_tasks SET initiator_id=? WHERE id=?", (msg["sender_id"], tid))
     if directed:
@@ -353,6 +356,8 @@ def lease_next(cred, owner: str = "", *, engine: str = "legacy", profiles: tuple
                 try:
                     admitted = runtime.admission(t, s)
                 except ApiError as e:
+                    if e.code == "agent_budget_exhausted" and t["kind"] == "consolidate":
+                        continue  # 后台整理遇到额度不足：保持排队等额度恢复，别失败后又被调度器每 10 秒重建
                     db.run("UPDATE agent_tasks SET status='failed', finished_at=?, error=? WHERE id=?", (now, e.code, t["id"]))
                     _publish_task(t["id"])
                     continue
