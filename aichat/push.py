@@ -117,7 +117,7 @@ def _send_blocking(subs: list[dict], payload_json: str) -> list[str]:
 
 
 async def notify_message(room: dict, sender_id: int, sender_name: str, recipient_ids: list[int], msg: dict) -> None:
-    if not AVAILABLE or not recipient_ids:
+    if not recipient_ids:
         return
     import json
 
@@ -126,8 +126,15 @@ async def notify_message(room: dict, sender_id: int, sender_name: str, recipient
     targets = [i for i in recipient_ids if i != sender_id and i not in muted]
     if not targets:
         return
-    from . import chat
+    from . import chat, hub
 
+    # 安卓 App 的后台连接：同一套“谁该收到通知”的判断，直接通过 WebSocket 交给 App 弹系统通知
+    native_base = build_payload(room, sender_name, msg)
+    for t_ in targets:
+        if hub.has_native(t_):
+            await hub.send_native(t_, {"type": "native.notify", **native_base, "badge": chat.unread_total(t_)})
+    if not AVAILABLE:
+        return
     q = ",".join("?" * len(targets))
     rows = [dict(r) for r in db.all(f"SELECT user_id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id IN ({q})", targets)]
     if not rows:
@@ -151,9 +158,16 @@ def reset() -> None:
 
 def notify_call_later(room_id: int, caller_id: int, caller_name: str, callee_id: int, media: str) -> None:
     """来电：给被叫的离线设备发一条推送（页面开着时由页面自己响铃）。"""
+    import json
+    from . import hub
+
+    call_payload = {"title": caller_name, "body": "来电：视频通话" if media == "video" else "来电：语音通话", "room_id": room_id, "tag": f"call-{room_id}", "call": True}
+    try:
+        asyncio.get_running_loop().create_task(hub.send_native(callee_id, {"type": "native.notify", **call_payload}))
+    except RuntimeError:
+        pass
     if not AVAILABLE:
         return
-    import json
 
     subs = [dict(r) for r in db.all("SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id=?", (callee_id,))]
     if not subs:

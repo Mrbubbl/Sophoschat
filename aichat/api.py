@@ -805,7 +805,7 @@ async def ws(websocket: WebSocket):
         return
     await websocket.accept()
     user_id = user["id"]
-    await hub.connect(user_id, websocket, security.token_hash(websocket.cookies.get(COOKIE)))
+    await hub.connect(user_id, websocket, security.token_hash(websocket.cookies.get(COOKIE)), native=websocket.query_params.get("client") == "android")
     try:
         await websocket.send_json({"type": "hello", "user": auth.public_user(user), "agent": tasks.agent_status(uid(user))})
         while True:

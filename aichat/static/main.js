@@ -231,6 +231,9 @@ async function start() {
   }
 }
 
+// 安卓 App 外壳：点系统通知时由原生调用，切到对应聊天
+window.addEventListener('sophos:open-room', (e) => { const id = Number(e.detail); if (id && S.rooms.has(id)) emit('open-room', { id }); });
+
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});
   // 点通知 → 打开对应会话

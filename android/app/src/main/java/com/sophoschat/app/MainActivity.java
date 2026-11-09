@@ -2,7 +2,11 @@ package com.sophoschat.app;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.DownloadManager;
+import android.content.SharedPreferences;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -32,6 +36,10 @@ import java.util.List;
 public class MainActivity extends Activity {
     private static final int REQ_FILE = 1001;
     private static final int REQ_PERM = 1002;
+    private static final int REQ_NOTIF = 1003;
+
+    /** 前台可见时，后台服务不弹通知（网页自己会提示）。 */
+    static volatile boolean visible = false;
 
     private WebView web;
     private ProgressBar bar;
@@ -138,8 +146,50 @@ public class MainActivity extends Activity {
             }
         });
 
+        int room = getIntent().getIntExtra("room_id", 0);
         if (savedInstanceState != null) web.restoreState(savedInstanceState);
-        else web.loadUrl(serverUrl);
+        else web.loadUrl(room > 0 ? serverUrl + "?room=" + room : serverUrl);
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        int room = intent.getIntExtra("room_id", 0);
+        if (room > 0 && web != null) {
+            web.evaluateJavascript("window.dispatchEvent(new CustomEvent('sophos:open-room',{detail:" + room + "}))", null);
+        }
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        visible = true;
+        PushService.start(this);
+        ensureBackgroundSetup();
+    }
+
+    /** 首次使用：申请通知权限，再引导加入电池优化白名单（国内手机还要手动开“自启动/后台运行”）。 */
+    private void ensureBackgroundSetup() {
+        SharedPreferences sp = getSharedPreferences("setup", MODE_PRIVATE);
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                && !sp.getBoolean("notif_asked", false)) {
+            sp.edit().putBoolean("notif_asked", true).apply();
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIF);
+            return;
+        }
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName()) && !sp.getBoolean("battery_done", false)) {
+            sp.edit().putBoolean("battery_done", true).apply(); // 只弹一次，不反复打扰
+            new AlertDialog.Builder(this)
+                    .setTitle("让消息在后台也能及时到达")
+                    .setMessage("1. 点“去设置”，允许 SophosChat 不受电池优化限制。\n\n2. 国产手机（华为、小米、OPPO、vivo 等）还请在“应用设置”里，把“自启动”“后台运行/后台活动”也设为允许。各品牌位置不同，在应用设置里找“电池”或“启动管理”。\n\n通知栏里会有一条很小的“SophosChat”常驻通知，这是保持连接所必需的。")
+                    .setPositiveButton("去设置", (d, w) -> {
+                        try { startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getPackageName()))); }
+                        catch (Exception e) { startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))); }
+                    })
+                    .setNeutralButton("打开应用设置", (d, w) -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))))
+                    .setNegativeButton("以后再说", null)
+                    .show();
+        }
     }
 
     @Override protected void onSaveInstanceState(Bundle out) { super.onSaveInstanceState(out); web.saveState(out); }
@@ -157,6 +207,7 @@ public class MainActivity extends Activity {
     }
 
     @Override public void onRequestPermissionsResult(int req, String[] perms, int[] results) {
+        if (req == REQ_NOTIF) { ensureBackgroundSetup(); return; }
         if (req != REQ_PERM || pendingPermission == null) return;
         boolean ok = results.length > 0;
         for (int r : results) if (r != PackageManager.PERMISSION_GRANTED) ok = false;
@@ -164,5 +215,10 @@ public class MainActivity extends Activity {
         pendingPermission = null;
     }
 
-    @Override protected void onPause() { super.onPause(); CookieManager.getInstance().flush(); }
+    @Override protected void onPause() {
+        super.onPause();
+        visible = false;
+        CookieManager.getInstance().flush();
+        PushService.snapshot(this);
+    }
 }
