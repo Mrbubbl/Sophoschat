@@ -6,7 +6,7 @@ import { voiceSupported, startRecording, voicePlayer, recordingBar, MAX_MS, stop
 import { paintBg, effectiveBg, openRoomBg } from './appearance.js';
 import { linkCards } from './linkcard.js';
 import { openLayer } from './nav.js';
-import { enter } from './motion.js';
+import { enter, motionOn } from './motion.js';
 import { wsSend } from './ws.js';
 import { canCall, startCall } from './call.js';
 import { artifactCard } from './artifacts.js';
@@ -468,19 +468,88 @@ function attachmentEl(a, m) {
   return h('a', { class: 'att-file', href: a.url + '?download=1', download: a.filename }, icon('download', 16), h('span', { class: 'fname' }, a.filename), h('small', null, fmtSize(a.size)));
 }
 
+// 当前聊天里已加载的所有图片，按时间顺序，供查看器左右滑动切换
+function galleryImages() {
+  const list = S.msgs.get(S.cur)?.list || [];
+  const out = [];
+  for (const m of list) if (!m.deleted && m.attachment?.is_image) out.push(m.attachment);
+  return out;
+}
+
 function lightbox(a) {
+  const items = galleryImages();
+  let idx = Math.max(0, items.findIndex((x) => x.url === a.url));
+  if (!items.length) items.push(a);
   let closed = false;
   const close = () => {
     if (closed) return;
     closed = true;
+    document.removeEventListener('keydown', k);
     ov.remove();
     leave();
   };
   const leave = openLayer(close);
-  const ov = h('div', { class: 'lightbox', onclick: close }, h('img', { src: a.url, alt: a.filename }), h('button', { class: 'lb-close', type: 'button', 'aria-label': '关闭', onclick: close }, icon('close', 22)));
-  document.body.append(ov);
-  const k = (e) => e.key === 'Escape' && (close(), document.removeEventListener('keydown', k));
+  const img = h('img', { src: items[idx].url, alt: items[idx].filename, draggable: 'false' });
+  const count = h('div', { class: 'lb-count' });
+  const prev = h('button', { class: 'lb-nav prev', type: 'button', 'aria-label': '上一张', onclick: (e) => { e.stopPropagation(); go(-1); } }, icon('back', 22));
+  const next = h('button', { class: 'lb-nav next', type: 'button', 'aria-label': '下一张', onclick: (e) => { e.stopPropagation(); go(1); } }, icon('back', 22));
+  const stage = h('div', { class: 'lb-stage' }, img);
+  const ov = h('div', { class: 'lightbox', onclick: () => { if (!moved) close(); } }, stage, count, prev, next,
+    h('button', { class: 'lb-close', type: 'button', 'aria-label': '关闭', onclick: (e) => { e.stopPropagation(); close(); } }, icon('close', 22)));
+  const reduce = () => !motionOn();
+  const refresh = () => {
+    count.textContent = items.length > 1 ? `${idx + 1} / ${items.length}` : '';
+    prev.hidden = idx <= 0; next.hidden = idx >= items.length - 1;
+    count.hidden = items.length < 2;
+  };
+  function go(d) {
+    const n = idx + d;
+    if (n < 0 || n >= items.length) { bounce(); return; }
+    idx = n;
+    img.src = items[idx].url; img.alt = items[idx].filename;
+    refresh();
+    if (!reduce()) img.animate([{ transform: `translateX(${d * 36}px)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 260, easing: 'cubic-bezier(0.05,0.7,0.1,1)' });
+  }
+  function bounce() {
+    if (!reduce()) img.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-10px)' }, { transform: 'translateX(0)' }], { duration: 200 });
+  }
+  // 手指拖动：跟手位移，松手按距离/速度决定翻页还是回弹
+  let sx = 0, sy = 0, dx = 0, t0 = 0, drag = false, moved = false, locked = '';
+  stage.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    sx = e.clientX; sy = e.clientY; dx = 0; t0 = performance.now(); drag = true; moved = false; locked = '';
+  });
+  stage.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const mx = e.clientX - sx, my = e.clientY - sy;
+    if (!locked && (Math.abs(mx) > 8 || Math.abs(my) > 8)) locked = Math.abs(mx) > Math.abs(my) ? 'x' : 'y';
+    if (locked !== 'x') return;
+    moved = true; dx = mx;
+    try { stage.setPointerCapture(e.pointerId); } catch {}
+    const edge = (dx > 0 && idx <= 0) || (dx < 0 && idx >= items.length - 1);
+    img.style.transition = 'none';
+    img.style.transform = `translateX(${edge ? dx * 0.3 : dx}px)`;
+    img.style.opacity = String(1 - Math.min(Math.abs(dx) / 600, 0.4));
+  });
+  const end = () => {
+    if (!drag) return;
+    drag = false;
+    const v = Math.abs(dx) / Math.max(1, performance.now() - t0);
+    img.style.transition = 'transform .28s cubic-bezier(0.2,0,0,1), opacity .28s';
+    img.style.transform = ''; img.style.opacity = '';
+    if (locked === 'x' && (Math.abs(dx) > 60 || (v > 0.5 && Math.abs(dx) > 28))) go(dx < 0 ? 1 : -1);
+    setTimeout(() => { moved = false; img.style.transition = ''; }, 60);
+  };
+  stage.addEventListener('pointerup', end);
+  stage.addEventListener('pointercancel', end);
+  function k(e) {
+    if (e.key === 'Escape') close();
+    else if (e.key === 'ArrowLeft') go(-1);
+    else if (e.key === 'ArrowRight') go(1);
+  }
   document.addEventListener('keydown', k);
+  refresh();
+  document.body.append(ov);
 }
 
 // ------------------------------------------------------------------ 任务状态

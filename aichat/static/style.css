@@ -870,3 +870,11 @@ html[data-motion='off'] *, html[data-motion='off'] *::before, html[data-motion='
   .set-nav { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); padding-right: 24px; scroll-behavior: smooth; }
 }
 .newchat .seg + input { margin-top: 10px; }
+
+/* ---------- 图片查看器：左右滑动 ---------- */
+.lb-stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; touch-action: pan-y; user-select: none; }
+.lb-stage img { pointer-events: none; will-change: transform; }
+.lb-count { position: absolute; top: 22px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,.85); font-size: 13px; letter-spacing: .04em; background: rgba(255,255,255,.12); padding: 4px 12px; border-radius: 99px; }
+.lb-nav { position: absolute; top: 50%; margin-top: -22px; width: 44px; height: 44px; border: 0; border-radius: 50%; background: rgba(255,255,255,.14); color: #fff; display: none; align-items: center; justify-content: center; }
+.lb-nav.prev { left: 14px; } .lb-nav.next { right: 14px; } .lb-nav.next svg { transform: rotate(180deg); }
+@media (hover: hover) and (pointer: fine) { .lb-nav { display: flex; } .lb-nav[hidden] { display: none; } }
