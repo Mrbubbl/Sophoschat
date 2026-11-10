@@ -75,6 +75,11 @@ function renderAccount(el) {
     h('label', { class: 'switch-row' }, h('input', { type: 'checkbox', checked: showTimes(), onchange: (e) => { setShowTimes(e.target.checked); toast(e.target.checked ? '已显示每条消息的时间' : '已隐藏，只在间隔较久时显示时间（长按消息可看确切时间）'); } }), h('span', { class: 'sw-text' }, '每条消息显示发送时间', h('small', null, '关掉后更紧凑：消息间隔超过 5 分钟才会显示一次时间。只对这台设备生效。'))),
     h('h3', null, '通知'),
     notifySection(el, perm),
+    // 仅 Android App 里显示（window.SophosNative 由 App 注入）。默认关闭；后台总被系统杀掉的手机再打开。
+    window.SophosNative ? h('div', null,
+      h('label', { class: 'switch-row' }, h('input', { type: 'checkbox', checked: !!window.SophosNative.getKeepAlive(), onchange: (e) => { try { window.SophosNative.setKeepAlive(e.target.checked); } catch (_) { } toast(e.target.checked ? '已开启强力保活（更耗电）' : '已关闭强力保活'); } }), h('span', { class: 'sw-text' }, '强力保活（后台总断线时再开）', h('small', null, '开启后保持 CPU 与 Wi-Fi 唤醒，并每隔几分钟自动拉起后台连接，更耗电。三星等后台管得松的手机不需要。vivo、OPPO、小米、华为还要在系统设置里允许“自启动”和“后台运行”。'))),
+      h('button', { class: 'btn', onclick: () => { try { window.SophosNative.openAppSettings(); } catch (_) { } } }, '打开本应用的系统设置')
+    ) : null,
     h('h3', null, '登录设备'),
     devices,
     h('h3', null, '登录'),

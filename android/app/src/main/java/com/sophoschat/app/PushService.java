@@ -4,6 +4,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.AlarmManager;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
@@ -15,6 +16,8 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.PowerManager;
+import android.net.wifi.WifiManager;
 import android.webkit.CookieManager;
 
 import org.json.JSONArray;
@@ -55,10 +58,23 @@ public class PushService extends Service {
     private String serverUrl;
     private ConnectivityManager.NetworkCallback netCb;
     private String status = "正在连接…";
+    // “强力保活”（默认关，在设置里手动开）：持有 CPU/Wi-Fi 锁 + 定时唤醒拉起自己
+    private PowerManager.WakeLock wakeLock;
+    private WifiManager.WifiLock wifiLock;
+    private static final int ALARM_REQ = 7001;
+    private static final long ALARM_EVERY_MS = 5 * 60_000L;
 
     /** 离开 App 时调用：把当前各会话的未读数记为“已知”，避免之后把已读过的当成漏掉的。 */
     public static void snapshot(Context ctx) {
         Intent i = new Intent(ctx, PushService.class).setAction("snapshot");
+        try {
+            if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i); else ctx.startService(i);
+        } catch (Exception ignored) { }
+    }
+
+    /** 设置里切换“强力保活”后调用：让运行中的服务立刻按新设置生效。 */
+    public static void applySettings(Context ctx) {
+        Intent i = new Intent(ctx, PushService.class).setAction("apply");
         try {
             if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i); else ctx.startService(i);
         } catch (Exception ignored) { }
@@ -93,6 +109,8 @@ public class PushService extends Service {
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         goForeground();
+        applyKeepAlive();
+        if (intent != null && "apply".equals(intent.getAction())) return START_STICKY;
         if (intent != null && "snapshot".equals(intent.getAction())) {
             new Thread(() -> catchUp(false), "push-snapshot").start();
             return START_STICKY;
@@ -102,7 +120,59 @@ public class PushService extends Service {
         return START_STICKY;
     }
 
+    /** 用户从最近任务里划掉 App：开了强力保活就尽快把自己拉起来（系统强制停止的情况做不到）。 */
+    @Override public void onTaskRemoved(Intent rootIntent) {
+        if (NativeBridge.keepAlive(this)) scheduleAlarm();
+        super.onTaskRemoved(rootIntent);
+    }
+
+    private void applyKeepAlive() {
+        if (NativeBridge.keepAlive(this)) {
+            try {
+                if (wakeLock == null) {
+                    PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+                    wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "SophosChat:push");
+                    wakeLock.setReferenceCounted(false);
+                }
+                if (!wakeLock.isHeld()) wakeLock.acquire();
+                if (wifiLock == null) {
+                    WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+                    wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "SophosChat:push");
+                    wifiLock.setReferenceCounted(false);
+                }
+                if (!wifiLock.isHeld()) wifiLock.acquire();
+            } catch (Exception ignored) { }
+            scheduleAlarm();
+        } else {
+            releaseLocks();
+            cancelAlarm();
+        }
+    }
+
+    private void releaseLocks() {
+        try { if (wakeLock != null && wakeLock.isHeld()) wakeLock.release(); } catch (Exception ignored) { }
+        try { if (wifiLock != null && wifiLock.isHeld()) wifiLock.release(); } catch (Exception ignored) { }
+    }
+
+    private PendingIntent alarmIntent() {
+        Intent i = new Intent(this, BootReceiver.class).setAction("com.sophoschat.app.KEEPALIVE");
+        return PendingIntent.getBroadcast(this, ALARM_REQ, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    /** 不精确但能在省电模式下触发的定时器（不需要“精确闹钟”权限）：到点由 BootReceiver 再拉起服务。 */
+    private void scheduleAlarm() {
+        try {
+            AlarmManager am = (AlarmManager) getSystemService(ALARM_SERVICE);
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + ALARM_EVERY_MS, alarmIntent());
+        } catch (Exception ignored) { }
+    }
+
+    private void cancelAlarm() {
+        try { ((AlarmManager) getSystemService(ALARM_SERVICE)).cancel(alarmIntent()); } catch (Exception ignored) { }
+    }
+
     @Override public void onDestroy() {
+        releaseLocks();
         destroyed = true;
         main.removeCallbacksAndMessages(null);
         try { if (socket != null) socket.cancel(); } catch (Exception ignored) { }
