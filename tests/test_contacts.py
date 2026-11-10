@@ -187,7 +187,7 @@ def test_legacy_migration_preview_is_read_only_and_apply_is_idempotent(env,tmp_p
     assert json.loads(out.stdout)['rooms']==1
     assert path.read_bytes()==before
     db.connect(path)
-    assert db.one('PRAGMA user_version')[0]==10
+    assert db.one('PRAGMA user_version')[0]==db.SCHEMA_VERSION
     assert db.one('SELECT archived FROM room_members WHERE room_id=? AND user_id=?',(empty,env.alice_id))['archived']==1
     assert db.one('SELECT archived FROM room_members WHERE room_id=? AND user_id=?',(kept,env.alice_id))['archived']==0
     assert contacts.list_for(env.alice_id)==[]

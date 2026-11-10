@@ -307,7 +307,7 @@ CREATE TABLE IF NOT EXISTS invite_uses(
 );
 """
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 # 旧库升级：只做加列，不删不改已有数据
 _ADD_COLUMNS = [
