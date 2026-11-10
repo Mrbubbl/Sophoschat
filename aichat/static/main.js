@@ -10,6 +10,7 @@ import { initCalls } from './call.js';
 import { applyPrefs, savePrefs } from './appearance.js';
 import { initNav, syncView } from './nav.js';
 import { enter } from './motion.js';
+import { initShare } from './share.js';
 import { setVoiceRate, setAutoNext } from './voice.js';
 
 const root = $('#root');
@@ -229,7 +230,10 @@ async function start() {
     history.replaceState(null, '', '/');
     emit('open-room', { id: want });
   }
+  emit('app:ready');
 }
+
+initShare();
 
 // 安卓 App 外壳：点系统通知时由原生调用，切到对应聊天
 window.addEventListener('sophos:open-room', (e) => { const id = Number(e.detail); if (id && S.rooms.has(id)) emit('open-room', { id }); });

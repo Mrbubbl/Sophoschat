@@ -29,6 +29,15 @@ import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
+import android.database.Cursor;
+import android.provider.OpenableColumns;
+import android.util.Base64;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -49,6 +58,11 @@ public class MainActivity extends Activity {
 
     private ValueCallback<Uri[]> filePathCallback;
     private PermissionRequest pendingPermission;
+
+    // 系统分享进来的内容：等网页加载好后交给网页（只注入顶层页面，不暴露给任何 iframe）
+    private String pendingShareJs;
+    private boolean pageReady = false;
+    private static final long SHARE_MAX_BYTES = 20L * 1024 * 1024;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -94,7 +108,11 @@ public class MainActivity extends Activity {
                 return true;
             }
             @Override public void onPageStarted(WebView v, String url, Bitmap f) { bar.setVisibility(View.VISIBLE); }
-            @Override public void onPageFinished(WebView v, String url) { bar.setVisibility(View.GONE); }
+            @Override public void onPageFinished(WebView v, String url) {
+                bar.setVisibility(View.GONE);
+                pageReady = true;
+                deliverShare();
+            }
             @Override public void onReceivedError(WebView v, WebResourceRequest r, android.webkit.WebResourceError e) {
                 if (r.isForMainFrame()) { web.setVisibility(View.INVISIBLE); errorView.setVisibility(View.VISIBLE); }
             }
@@ -147,6 +165,7 @@ public class MainActivity extends Activity {
         });
 
         int room = getIntent().getIntExtra("room_id", 0);
+        readShare(getIntent());
         if (savedInstanceState != null) web.restoreState(savedInstanceState);
         else web.loadUrl(room > 0 ? serverUrl + "?room=" + room : serverUrl);
     }
@@ -154,10 +173,86 @@ public class MainActivity extends Activity {
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        if (readShare(intent)) { deliverShare(); return; }
         int room = intent.getIntExtra("room_id", 0);
         if (room > 0 && web != null) {
             web.evaluateJavascript("window.dispatchEvent(new CustomEvent('sophos:open-room',{detail:" + room + "}))", null);
         }
+    }
+
+    /** 读取 ACTION_SEND / SEND_MULTIPLE：文字 + 最多 9 个文件，总共不超过 20MB。 */
+    private boolean readShare(Intent in) {
+        if (in == null) return false;
+        String act = in.getAction();
+        if (!Intent.ACTION_SEND.equals(act) && !Intent.ACTION_SEND_MULTIPLE.equals(act)) return false;
+        try {
+            JSONObject o = new JSONObject();
+            CharSequence text = in.getCharSequenceExtra(Intent.EXTRA_TEXT);
+            String subject = in.getStringExtra(Intent.EXTRA_SUBJECT);
+            String t = text != null ? text.toString() : "";
+            if (subject != null && !subject.isEmpty() && !t.contains(subject)) t = subject + "\n" + t;
+            o.put("text", t);
+            List<Uri> uris = new ArrayList<>();
+            if (Intent.ACTION_SEND.equals(act)) {
+                Uri u = in.getParcelableExtra(Intent.EXTRA_STREAM);
+                if (u != null) uris.add(u);
+            } else {
+                ArrayList<Uri> list = in.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+                if (list != null) uris.addAll(list);
+            }
+            JSONArray files = new JSONArray();
+            long total = 0; int skipped = 0;
+            for (Uri u : uris) {
+                if (files.length() >= 9) { skipped++; continue; }
+                byte[] data = readAll(u, SHARE_MAX_BYTES - total);
+                if (data == null) { skipped++; continue; }
+                total += data.length;
+                JSONObject f = new JSONObject();
+                f.put("name", displayName(u));
+                String mime = getContentResolver().getType(u);
+                f.put("mime", mime != null ? mime : (in.getType() != null ? in.getType() : "application/octet-stream"));
+                f.put("data", Base64.encodeToString(data, Base64.NO_WRAP));
+                files.put(f);
+            }
+            o.put("files", files);
+            o.put("skipped", skipped);
+            pendingShareJs = "window.__sophosShare=" + o.toString() + ";window.dispatchEvent(new Event('sophos:share'));";
+            in.setAction(Intent.ACTION_MAIN); // 处理过了，旋转屏幕等重建时不再重复
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private byte[] readAll(Uri u, long limit) {
+        try (InputStream is = getContentResolver().openInputStream(u)) {
+            if (is == null) return null;
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[64 * 1024]; int n; long sum = 0;
+            while ((n = is.read(buf)) > 0) {
+                sum += n;
+                if (sum > limit) return null;
+                out.write(buf, 0, n);
+            }
+            return out.toByteArray();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String displayName(Uri u) {
+        try (Cursor c = getContentResolver().query(u, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (c != null && c.moveToFirst()) { String n = c.getString(0); if (n != null) return n; }
+        } catch (Exception ignored) { }
+        String last = u.getLastPathSegment();
+        return last != null ? last : "shared";
+    }
+
+    private void deliverShare() {
+        if (pendingShareJs == null || !pageReady || web == null) return;
+        String js = pendingShareJs;
+        pendingShareJs = null;
+        web.evaluateJavascript(js, null);
     }
 
     @Override protected void onResume() {

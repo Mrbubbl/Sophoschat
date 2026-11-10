@@ -38,6 +38,13 @@ CREATE TABLE IF NOT EXISTS users(
   disabled INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS user_agent_keys(
+  user_id INTEGER PRIMARY KEY REFERENCES users(id),
+  base_url TEXT NOT NULL DEFAULT '',
+  model TEXT NOT NULL DEFAULT '',
+  encrypted_api_key TEXT,
+  updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS sessions(
   token_hash TEXT PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id),
@@ -302,6 +309,8 @@ _ADD_COLUMNS = [
     ("attachments", "transcript", "TEXT"),
     ("users", "avatar", "TEXT"),
     ("users", "can_add_users", "INTEGER NOT NULL DEFAULT 0"),
+    # 是否可用服务器（Owner）的 AI 接入：升级时已有成员默认 1，之后新建成员默认 0（见 auth.create_user）
+    ("users", "agent_access", "INTEGER NOT NULL DEFAULT 1"),
     ("agent_tasks", "lease_generation", "TEXT"),
     ("agent_tasks", "initiator_id", "INTEGER"),
     ("agent_tasks", "profile", "TEXT NOT NULL DEFAULT 'chat'"),
@@ -334,6 +343,8 @@ def _migrate(c: sqlite3.Connection) -> None:
     # profile is the authoritative SDK purpose: chat / delivery / memory.
     from .schema_v7 import EXTRA_SCHEMA
     c.executescript(EXTRA_SCHEMA)
+    if "own_key" not in {r[1] for r in c.execute("PRAGMA table_info(task_attempts)")}:
+        c.execute("ALTER TABLE task_attempts ADD COLUMN own_key INTEGER NOT NULL DEFAULT 0")
     c.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
 

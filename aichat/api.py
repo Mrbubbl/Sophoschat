@@ -449,7 +449,8 @@ async def add_user(body: UserIn, u=Depends(member_manager)):
 
 # ---------------------------------------------------------------- 房间
 class PermIn(BaseModel):
-    can_add_users: bool
+    can_add_users: bool | None = None
+    agent_access: bool | None = None
 
 
 @router.patch("/api/users/{user_id}/permissions")
@@ -458,9 +459,30 @@ async def set_permissions(user_id: int, body: PermIn, u=Depends(owner_user)):
     if not t or t["role"] != "user":
         raise ApiError(404, "user_not_found", "只能给普通成员设置权限")
     with db.tx():
-        db.run("UPDATE users SET can_add_users=? WHERE id=?", (1 if body.can_add_users else 0, user_id))
-        db.audit(f"user:{uid(u)}", "user.permission", None, target=user_id, can_add_users=body.can_add_users)
+        if body.can_add_users is not None:
+            db.run("UPDATE users SET can_add_users=? WHERE id=?", (1 if body.can_add_users else 0, user_id))
+        if body.agent_access is not None:
+            db.run("UPDATE users SET agent_access=? WHERE id=?", (1 if body.agent_access else 0, user_id))
+        db.audit(f"user:{uid(u)}", "user.permission", None, target=user_id, can_add_users=body.can_add_users, agent_access=body.agent_access)
     return _avatar_changed(user_id)
+
+
+class OwnKeyIn(BaseModel):
+    base_url: str = ""
+    model: str = ""
+    api_key: str | None = None  # None=保持不变；""=删除
+
+
+@router.get("/api/me/agent-key")
+async def my_agent_key(u=Depends(current_user)):
+    from . import runtime
+    return {"key": runtime.own_key(uid(u)), "source": runtime.credential_source(uid(u))}
+
+
+@router.put("/api/me/agent-key")
+async def set_my_agent_key(body: OwnKeyIn, u=Depends(current_user)):
+    from . import runtime
+    return {"key": runtime.set_own_key(uid(u), body.base_url, body.model, body.api_key), "source": runtime.credential_source(uid(u))}
 
 
 @router.get("/api/rooms")
