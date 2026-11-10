@@ -1,0 +1,1 @@
+Release builds are signed with the fixed key stored in GitHub Secrets.
