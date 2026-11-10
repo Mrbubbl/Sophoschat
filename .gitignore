@@ -20,3 +20,7 @@ node_modules/
 *.db-shm
 *.pem
 secret.key
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties

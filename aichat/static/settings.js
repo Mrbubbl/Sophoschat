@@ -142,6 +142,39 @@ async function loadDevices(box) {
   }
 }
 
+// ------------------------------------------------------------------ 我的 AI 接入（成员自己填 API，自己付费）
+async function ownKeyCard() {
+  const { key, source } = await get('/api/me/agent-key');
+  const state = source === 'own' ? '正在使用你自己的 API' : source === 'server' ? '正在使用服务器提供的 AI（由 Owner 开通）' : '未开通：填写你自己的 API 后即可使用 Agent';
+  const url = h('input', { type: 'text', value: key.base_url || '', placeholder: '例如 https://open.bigmodel.cn/api/anthropic', 'aria-label': '网关地址' });
+  const model = h('input', { type: 'text', value: key.model || '', placeholder: '例如 glm-5.1', 'aria-label': '模型 ID' });
+  const k = h('input', { type: 'password', autocomplete: 'new-password', placeholder: key.configured ? '已保存，留空保持不变' : '你的 API Key', 'aria-label': 'API Key' });
+  const card = h('div', { class: 'card own-key' },
+    h('h3', null, '我的 AI 接入'),
+    h('p', { class: source ? 'note' : 'note warn' }, state),
+    h('p', { class: 'muted small' }, '需要支持 Anthropic（Claude）协议的接口，比如智谱的 /api/anthropic。填写后你触发的 Agent 回复都用你自己的 Key、由你自己付费；Key 加密保存在服务器上，任何人（包括 Owner）都看不到。'),
+    h('label', { class: 'agent-field' }, h('span', null, '网关地址'), url),
+    h('label', { class: 'agent-field' }, h('span', null, '模型 ID'), model),
+    h('label', { class: 'agent-field' }, h('span', null, 'API Key'), k),
+    h('div', { class: 'row-actions' },
+      h('button', { class: 'btn primary', type: 'button', onclick: async () => {
+        try {
+          const body = { base_url: url.value.trim(), model: model.value.trim() };
+          if (k.value) body.api_key = k.value;
+          await api('PUT', '/api/me/agent-key', body);
+          toast('已保存');
+          card.replaceWith(await ownKeyCard());
+        } catch (e) { toast(e.message, 'err'); }
+      } }, '保存'),
+      key.configured ? h('button', { class: 'btn', type: 'button', onclick: async () => {
+        if (!(await ask('删除你自己的 API？删除后将无法使用 Agent，除非 Owner 为你开通。'))) return;
+        await api('PUT', '/api/me/agent-key', { base_url: '', model: '', api_key: '' });
+        toast('已删除');
+        card.replaceWith(await ownKeyCard());
+      } }, '删除') : null));
+  return card;
+}
+
 // ------------------------------------------------------------------ Agent 接入
 async function renderAgent(el) {
   try {
@@ -151,10 +184,11 @@ async function renderAgent(el) {
     const title = { unconfigured: '未配置', offline: '离线', online: '在线', paused: '已暂停', degraded: '模型调用异常' }[st.state] || st.state;
     let monthly = null;
     const body = h('div', { class: 'agent-settings' }, h('h3', null, '服务端 Agent · ' + title),
-      h('p', { class: 'note' }, 'AI 由服务器统一运行。普通成员只需聊天，无需安装终端 Agent、复制凭证或保持电脑在线。'),
+      S.me.role === 'owner' ? h('p', { class: 'note' }, 'AI 由服务器统一运行。普通成员只需聊天，无需安装终端 Agent、复制凭证或保持电脑在线。') : null,
       h('div', { class: 'ac-grid' }, kv('最近心跳', st.last_heartbeat ? fmtFull(st.last_heartbeat) : '—'), kv('指南版本', st.guide_version_current)),
       st.last_error ? h('p', { class: 'note warn' }, '最近错误：' + st.last_error.error) : null);
     el.replaceChildren(body);
+    if (S.me.role !== 'owner') body.append(await ownKeyCard());
     if (S.me.role === 'owner') {
       const { settings: cfg, sdk } = await get('/api/agent/settings');
       monthly = Number(cfg.monthly_usd) || null;
@@ -181,14 +215,28 @@ async function renderAgent(el) {
         models[name] = field; advanced.append(h('label', { class: 'agent-field' }, name, field));
       }
       form.append(advanced);
+      // 第二套接入（高级）：交付文件、或消息以 /pro 开头时使用
+      const proModel = h('input', { type: 'text', value: cfg.premium_model || '', placeholder: '例如 claude-opus-…', 'aria-label': '高级模型 ID' });
+      const proUrl = h('input', { type: 'text', value: cfg.premium_base_url || '', placeholder: '留空 = 官方地址', 'aria-label': '高级网关地址' });
+      const proKey = h('input', { type: 'password', autocomplete: 'new-password', placeholder: cfg.premium_configured ? '已保存，留空保持' : '高级接入的 API Key', 'aria-label': '高级接入 API Key' });
+      const pro = h('details', { open: !!cfg.premium_configured },
+        h('summary', null, '高级接入（第二套 API，可选）'),
+        h('p', { class: 'note' }, '上面是“日常”接入（聊天、记忆整理，选便宜的）。这里填一套更强的模型：交付文件时自动使用；平时在消息开头写 /pro 也会用它回答这一条。全部留空则只用日常接入。'),
+        h('label', { class: 'agent-field' }, h('span', null, '高级模型 ID'), proModel),
+        h('label', { class: 'agent-field' }, h('span', null, '高级网关地址'), proUrl),
+        h('label', { class: 'agent-field' }, h('span', null, '高级 API Key'), proKey));
+      form.append(pro);
       form.append(h('button', { class: 'btn primary', type: 'button', onclick: async () => {
         try {
           const values = { model: model.value.trim(), base_url: url.value.trim(), enabled: enabled.checked, memory_enabled: memory.checked,
             ...Object.fromEntries(Object.entries(numeric).map(([k,v]) => [k, Number(v.value)])),
             models: Object.fromEntries(Object.entries(models).filter(([k,v]) => v.value.trim()).map(([k,v]) => [k, v.value.trim()])) };
+          values.premium_model = proModel.value.trim(); values.premium_base_url = proUrl.value.trim();
           if (key.value) values.api_key = key.value;
+          if (proKey.value) values.premium_api_key = proKey.value;
+          if (!values.premium_model) values.premium_api_key = '';
           await api('PUT', '/api/agent/settings', values);
-          key.value = '';
+          key.value = ''; proKey.value = '';
           toast('已保存；正在执行的旧配置任务已停止，新任务使用新设置');
           await renderAgent(el);
         } catch(e) { toast(e.message, 'err'); }
@@ -334,7 +382,17 @@ async function renderMembers(el) {
           toast(err.message, 'err');
           e.target.checked = !e.target.checked;
         }
-      } }), h('span', null, '可添加成员')) : null))),
+      } }), h('span', null, '可添加成员')) : null,
+      S.me.role === 'owner' && m.role === 'user' ? h('label', { class: 'perm', title: '允许这位成员使用服务器的 AI（花你的额度）' }, h('input', { type: 'checkbox', checked: !!m.agent_access, onchange: async (e) => {
+        try {
+          const r = await api('PATCH', `/api/users/${m.id}/permissions`, { agent_access: e.target.checked });
+          emit('user:updated', r.user);
+          toast(e.target.checked ? `${m.display_name} 现在可以使用服务器 AI` : `已收回 ${m.display_name} 的服务器 AI 权限`);
+        } catch (err) {
+          toast(err.message, 'err');
+          e.target.checked = !e.target.checked;
+        }
+      } }), h('span', null, '用服务器 AI')) : null))),
     h('h3', null, '直接创建账号'),
     h('div', { class: 'form' }, u, d, p, h('button', { class: 'btn primary', type: 'button', onclick: async () => {
       try {

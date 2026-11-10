@@ -221,3 +221,65 @@ def test_session_reset_is_scoped_to_platform_current_attempt(env,sdk):
     assert env.a.post(f'/api/agent/tasks/{tid}/session-reset').status_code==401
     assert env.anon.post(f'/api/agent/tasks/{tid}/session-reset',headers=sdk.control(lease)).status_code==200
     assert db.one('SELECT sdk_session_id FROM sdk_sessions WHERE session_key=?',(state['session']['session_key'],))['sdk_session_id'] is None
+
+
+# ---------------------------------------------------------------- v22：双接入（日常 + 高级）
+def _attempt_cfg(env, sdk, lease):
+    r = env.anon.get(f"/api/agent/tasks/{lease['task']['id']}/runtime", headers=sdk.control(lease))
+    assert r.status_code == 200, r.text
+    return r.json()['config']
+
+
+def test_premium_settings_validation_and_secret_never_exposed(env, sdk):
+    with pytest.raises(Exception):
+        runtime.update_settings({'premium_model': 'big-model'}, env.alice_id)  # 只填模型不填 Key
+    runtime.update_settings({'premium_model': 'big-model', 'premium_base_url': 'https://pro.example.com/anthropic', 'premium_api_key': 'premium-secret-key'}, env.alice_id)
+    r = env.a.get('/api/agent/settings')
+    assert r.status_code == 200 and r.json()['settings']['premium_configured']
+    assert 'premium-secret-key' not in r.text and 'premium-secret-key' not in db.get_kv('server_agent_settings')
+    with pytest.raises(Exception):
+        runtime.update_settings({'premium_base_url': 'http://pro.example.com'}, env.alice_id)  # 非 HTTPS
+    # 清空高级模型和 Key 后回到只有日常接入
+    runtime.update_settings({'premium_model': '', 'premium_api_key': ''}, env.alice_id)
+    assert not env.a.get('/api/agent/settings').json()['settings']['premium_configured']
+
+
+def test_routing_chat_uses_main_pro_prefix_and_delivery_use_premium(env, sdk):
+    runtime.update_settings({'base_url': 'https://cheap.example.com/anthropic', 'model': 'cheap-model'}, env.alice_id)
+    # 没配高级接入：/pro 自动忽略，仍走日常
+    env.say(env.a, env.agent_dm_a, '/pro 你好')
+    lease = sdk.lease('chat')
+    cfg = _attempt_cfg(env, sdk, lease)
+    assert cfg['model'] == 'cheap-model' and cfg['api_key'] == 'test-only-not-a-real-key'
+    assert sdk.complete(lease).status_code == 200
+
+    runtime.update_settings({'premium_model': 'big-model', 'premium_base_url': 'https://pro.example.com/anthropic', 'premium_api_key': 'premium-secret-key'}, env.alice_id)
+    env.say(env.a, env.agent_dm_a, '普通问题')
+    lease = sdk.lease('chat')
+    cfg = _attempt_cfg(env, sdk, lease)
+    assert (cfg['model'], cfg['base_url'], cfg['api_key']) == ('cheap-model', 'https://cheap.example.com/anthropic', 'test-only-not-a-real-key')
+    assert sdk.complete(lease).status_code == 200
+
+    env.say(env.a, env.agent_dm_a, '/pro 这个要认真答')
+    lease = sdk.lease('chat')
+    cfg = _attempt_cfg(env, sdk, lease)
+    assert (cfg['model'], cfg['base_url'], cfg['api_key']) == ('big-model', 'https://pro.example.com/anthropic', 'premium-secret-key')
+    assert sdk.complete(lease).status_code == 200
+
+    child = sdk.delivery()
+    cfg = _attempt_cfg(env, sdk, child)
+    assert cfg['model'] == 'big-model' and cfg['api_key'] == 'premium-secret-key'
+
+
+def test_consolidation_waits_in_queue_when_budget_exhausted(env, sdk):
+    runtime.update_settings({'monthly_usd': 0.25, 'room_monthly_usd': 0.25, 'user_monthly_usd': 0.25}, env.alice_id)
+    env.say(env.a, env.agent_dm_a, '占满额度')
+    first = sdk.lease('chat')
+    assert first and sdk.result(first, 0.25).status_code == 200
+    assert sdk.complete(first).status_code in (200, 409)
+    room_id = env.agent_dm_a
+    db.run("INSERT INTO agent_tasks(room_id, kind, profile, status, created_at, params) VALUES(?, 'consolidate', 'memory', 'queued', ?, ?)", (room_id, db.now(), db.jl({'mode': 'pending', 'event_from': 0, 'event_to': 1})))
+    for _ in range(3):
+        assert sdk.lease('memory') is None
+    row = db.one("SELECT status, error FROM agent_tasks WHERE kind='consolidate' ORDER BY id DESC LIMIT 1")
+    assert row['status'] == 'queued' and not row['error']

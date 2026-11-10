@@ -499,7 +499,8 @@ async def add_user(body: UserIn, u=Depends(member_manager)):
 
 # ---------------------------------------------------------------- 房间
 class PermIn(BaseModel):
-    can_add_users: bool
+    can_add_users: bool | None = None
+    agent_access: bool | None = None
 
 
 @router.patch("/api/users/{user_id}/permissions")
@@ -508,9 +509,53 @@ async def set_permissions(user_id: int, body: PermIn, u=Depends(owner_user)):
     if not t or t["role"] != "user":
         raise ApiError(404, "user_not_found", "只能给普通成员设置权限")
     with db.tx():
-        db.run("UPDATE users SET can_add_users=? WHERE id=?", (1 if body.can_add_users else 0, user_id))
-        db.audit(f"user:{uid(u)}", "user.permission", None, target=user_id, can_add_users=body.can_add_users)
+        if body.can_add_users is not None:
+            db.run("UPDATE users SET can_add_users=? WHERE id=?", (1 if body.can_add_users else 0, user_id))
+        if body.agent_access is not None:
+            db.run("UPDATE users SET agent_access=? WHERE id=?", (1 if body.agent_access else 0, user_id))
+        db.audit(f"user:{uid(u)}", "user.permission", None, target=user_id, can_add_users=body.can_add_users, agent_access=body.agent_access)
     return _avatar_changed(user_id)
+
+
+# ---------------------------------------------------------------- 安卓 App 内更新（安装包由 deploy/update.sh 从 GitHub Release 同步到 数据目录/app）
+@router.get("/api/app/android")
+async def android_version(u=Depends(current_user)):
+    import json as _json
+    p = config.get().data_dir / "app" / "version.json"
+    try:
+        info = _json.loads(p.read_text())
+    except Exception:
+        return {"available": False}
+    ok = (config.get().data_dir / "app" / "SophosChat.apk").exists()
+    return {"available": ok, "versionCode": info.get("versionCode"), "versionName": info.get("versionName"),
+            "notes": info.get("notes", ""), "size": info.get("size"), "sha256": info.get("sha256"), "url": "/api/app/android.apk"}
+
+
+@router.get("/api/app/android.apk")
+async def android_apk(u=Depends(current_user)):
+    from fastapi.responses import FileResponse
+    p = config.get().data_dir / "app" / "SophosChat.apk"
+    if not p.exists():
+        raise ApiError(404, "not_found", "暂无安装包")
+    return FileResponse(p, media_type="application/vnd.android.package-archive", filename="SophosChat.apk")
+
+
+class OwnKeyIn(BaseModel):
+    base_url: str = ""
+    model: str = ""
+    api_key: str | None = None  # None=保持不变；""=删除
+
+
+@router.get("/api/me/agent-key")
+async def my_agent_key(u=Depends(current_user)):
+    from . import runtime
+    return {"key": runtime.own_key(uid(u)), "source": runtime.credential_source(uid(u))}
+
+
+@router.put("/api/me/agent-key")
+async def set_my_agent_key(body: OwnKeyIn, u=Depends(current_user)):
+    from . import runtime
+    return {"key": runtime.set_own_key(uid(u), body.base_url, body.model, body.api_key), "source": runtime.credential_source(uid(u))}
 
 
 @router.get("/api/rooms")
@@ -855,7 +900,7 @@ async def ws(websocket: WebSocket):
         return
     await websocket.accept()
     user_id = user["id"]
-    await hub.connect(user_id, websocket, security.token_hash(websocket.cookies.get(COOKIE)))
+    await hub.connect(user_id, websocket, security.token_hash(websocket.cookies.get(COOKIE)), native=websocket.query_params.get("client") == "android")
     try:
         await websocket.send_json({"type": "hello", "user": auth.public_user(user), "agent": tasks.agent_status(uid(user))})
         while True:

@@ -21,6 +21,7 @@ def public_user(r) -> dict:
         "disabled": bool(r["disabled"]),
         "avatar_url": avatar_url(r),
         "can_add_users": bool(r["role"] == "owner" or ("can_add_users" in r.keys() and r["can_add_users"])),
+        "agent_access": bool(r["role"] != "user" or ("agent_access" in r.keys() and r["agent_access"])),
     }
 
 
@@ -46,8 +47,8 @@ def create_user(username: str, display_name: str | None, password: str | None, r
         if role == "owner" and db.one("SELECT 1 FROM users WHERE role='owner'"):
             raise ApiError(409, "owner_exists", "Owner 已存在")
         uid = db.insert(
-            "INSERT INTO users(username, display_name, password_hash, role, created_at) VALUES(?,?,?,?,?)",
-            (username, (display_name or username).strip()[:40], security.hash_password(password) if password else None, role, db.now()),
+            "INSERT INTO users(username, display_name, password_hash, role, created_at, agent_access) VALUES(?,?,?,?,?,?)",
+            (username, (display_name or username).strip()[:40], security.hash_password(password) if password else None, role, db.now(), 0 if role == "user" else 1),
         )
         db.audit("system", "user.create", None, user_id=uid, role=role)
     return uid

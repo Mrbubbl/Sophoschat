@@ -24,6 +24,8 @@ DEFAULTS = {
     "monthly_usd": 20.0, "user_monthly_usd": 10.0, "room_monthly_usd": 10.0,
     "max_file_bytes": 2 * 1024 * 1024, "memory_max_delay_seconds": 3600,
     "models": {}, "revision": 0,
+    # 第二套接入（高级）：可选。交付文件等用途、或消息以 /pro 开头时使用；其余走上面的日常接入。
+    "premium_model": "", "premium_base_url": "",
 }
 
 
@@ -48,9 +50,12 @@ def settings(*, secrets: bool = False) -> dict:
     saved = db.jd(db.get_kv("server_agent_settings"), {})
     out = {**DEFAULTS, **saved}
     encrypted = out.pop("encrypted_api_key", None)
+    premium_enc = out.pop("encrypted_premium_api_key", None)
     out["configured"] = bool(encrypted and out["model"])
+    out["premium_configured"] = bool(premium_enc and out["premium_model"])
     if secrets:
         out["api_key"] = _decrypt(encrypted)
+        out["premium_api_key"] = _decrypt(premium_enc)
     return out
 
 
@@ -59,25 +64,28 @@ def update_settings(changes: dict, actor_id: int) -> dict:
         raise ApiError(403, "owner_only")
     old = db.jd(db.get_kv("server_agent_settings"), {})
     values = {**DEFAULTS, **old}
-    unknown = set(changes) - (set(DEFAULTS) - {"revision"}) - {"api_key"}
+    unknown = set(changes) - (set(DEFAULTS) - {"revision"}) - {"api_key", "premium_api_key"}
     if unknown:
         raise ApiError(422, "invalid_agent_settings", "未知设置字段")
     for k, value in changes.items():
-        if k == "api_key":
+        if k in ("api_key", "premium_api_key"):
             if value is not None:
                 if not isinstance(value, str) or len(value) > 4096:
                     raise ApiError(422, "invalid_api_key")
-                values["encrypted_api_key"] = _encrypt(value) if value else None
+                values["encrypted_api_key" if k == "api_key" else "encrypted_premium_api_key"] = _encrypt(value) if value else None
         else:
             values[k] = value
     if values["provider"] != "anthropic":
         raise ApiError(422, "unsupported_provider", "本版仅通过 Claude Agent SDK 接入 Anthropic；不回退到其他引擎")
-    for k in ("model", "base_url"):
+    for k in ("model", "base_url", "premium_model", "premium_base_url"):
         if not isinstance(values[k], str) or len(values[k]) > 500 or "\n" in values[k]:
             raise ApiError(422, "invalid_agent_settings", k)
-    url = urlparse(values["base_url"])
-    if values["base_url"] and (url.username or url.password or url.query or url.fragment or not url.hostname or (url.scheme != "https" and not (url.scheme == "http" and url.hostname in ("localhost", "127.0.0.1", "::1")))):
-        raise ApiError(422, "invalid_base_url", "模型网关需使用 HTTPS（本机测试地址除外）")
+    for k in ("base_url", "premium_base_url"):
+        url = urlparse(values[k])
+        if values[k] and (url.username or url.password or url.query or url.fragment or not url.hostname or (url.scheme != "https" and not (url.scheme == "http" and url.hostname in ("localhost", "127.0.0.1", "::1")))):
+            raise ApiError(422, "invalid_base_url", "模型网关需使用 HTTPS（本机测试地址除外）")
+    if bool(values["premium_model"]) != bool(values.get("encrypted_premium_api_key")):
+        raise ApiError(422, "invalid_agent_settings", "高级接入需要同时填写模型和 API Key（或都留空）")
     for k, lo, hi in (("max_concurrency", 1, 8), ("reserved_chat_slots", 0, 7), ("max_turns", 1, 100), ("timeout_seconds", 10, 3600), ("max_file_bytes", 1024, 5 * 1024 * 1024), ("memory_max_delay_seconds", 60, 86400)):
         if type(values[k]) is not int or not lo <= values[k] <= hi:
             raise ApiError(422, "invalid_agent_settings", k)
@@ -138,7 +146,64 @@ def _month_start() -> str:
 
 
 def _spent(where: str = "", args: tuple = ()) -> float:
-    return db.one("SELECT COALESCE(SUM(COALESCE(cost_usd,reserved_usd)),0) n FROM task_attempts WHERE started_at>=?" + where, (_month_start(), *args))["n"]
+    # 成员用自己 API Key 的调用不占服务器预算
+    return db.one("SELECT COALESCE(SUM(COALESCE(cost_usd, CASE WHEN finished_at IS NULL THEN reserved_usd ELSE 0 END)),0) n FROM task_attempts WHERE own_key=0 AND started_at>=?" + where, (_month_start(), *args))["n"]
+
+
+# ---------------------------------------------------------------- 成员自己的 API
+def own_key(user_id: int, secrets: bool = False) -> dict:
+    r = db.one("SELECT * FROM user_agent_keys WHERE user_id=?", (user_id,))
+    out = {"base_url": r["base_url"] if r else "", "model": r["model"] if r else "", "configured": bool(r and r["encrypted_api_key"] and r["model"])}
+    if secrets:
+        out["api_key"] = _decrypt(r["encrypted_api_key"]) if r else None
+    return out
+
+
+def set_own_key(user_id: int, base_url: str, model: str, api_key: str | None) -> dict:
+    base_url, model = (base_url or "").strip(), (model or "").strip()
+    for v in (base_url, model):
+        if len(v) > 500 or "\n" in v:
+            raise ApiError(422, "invalid_agent_settings")
+    url = urlparse(base_url)
+    if base_url and (url.username or url.password or url.query or url.fragment or not url.hostname or url.scheme != "https"):
+        raise ApiError(422, "invalid_base_url", "网关地址需使用 HTTPS")
+    if api_key is not None and (not isinstance(api_key, str) or len(api_key) > 4096):
+        raise ApiError(422, "invalid_api_key")
+    with db.tx():
+        old = db.one("SELECT encrypted_api_key FROM user_agent_keys WHERE user_id=?", (user_id,))
+        enc = (_encrypt(api_key) if api_key else None) if api_key is not None else (old["encrypted_api_key"] if old else None)
+        if not model and not enc:
+            db.run("DELETE FROM user_agent_keys WHERE user_id=?", (user_id,))
+        else:
+            if bool(model) != bool(enc):
+                raise ApiError(422, "invalid_agent_settings", "需要同时填写模型 ID 和 API Key")
+            db.run("INSERT INTO user_agent_keys(user_id,base_url,model,encrypted_api_key,updated_at) VALUES(?,?,?,?,?) "
+                   "ON CONFLICT(user_id) DO UPDATE SET base_url=excluded.base_url, model=excluded.model, encrypted_api_key=excluded.encrypted_api_key, updated_at=excluded.updated_at",
+                   (user_id, base_url, model, enc, db.now()))
+        db.audit(f"user:{user_id}", "agent.own_key", None, configured=bool(model and enc))
+    return own_key(user_id)
+
+
+def credential_source(user_id: int | None) -> str | None:
+    """这个人触发 Agent 时用谁的 API：own=他自己填的；server=服务器（Owner）的；None=无权使用。
+    自己填了就优先用自己的（自己付费）。"""
+    if not user_id:
+        return "server"
+    if own_key(user_id)["configured"]:
+        return "own"
+    u = db.one("SELECT role, agent_access FROM users WHERE id=?", (user_id,))
+    if u and (u["role"] != "user" or u["agent_access"]):
+        return "server"
+    return None
+
+
+def tier_for(t, s: dict) -> str:
+    """main=日常接入；pro=高级接入。交付文件、或任务带 tier=pro（消息以 /pro 开头）时用高级，且仅在已配置时。"""
+    if not s.get("premium_configured"):
+        return "main"
+    if t["profile"] == "delivery" or db.jd(t["params"], {}).get("tier") == "pro":
+        return "pro"
+    return "main"
 
 
 def admission(t, s: dict) -> dict | None:
@@ -152,23 +217,37 @@ def admission(t, s: dict) -> dict | None:
     sh = scope_hash(t["room_id"])
     # Delivery continues a specific artifact chain; no global 'latest session'.
     identity = "room" if p != "delivery" else f"run-{t['id']}"
-    key = f"room-{t['room_id']}:{p}:{identity}:{sh}:{s['revision']}:{tasks.GUIDE_VERSION}"
+    tier = tier_for(t, s)
+    key = f"room-{t['room_id']}:{p}:{identity}:{sh}:{s['revision']}:{tasks.GUIDE_VERSION}" + (":pro" if tier == "pro" and p != "delivery" else "")
     if any(r["session_key"] == key for r in active):
         return None
     cap = float(s["max_run_usd"])
+    source = "server" if p == "memory" else credential_source(t["initiator_id"])
+    if source is None:
+        raise ApiError(403, "agent_no_access", "还没有开通 AI：请在 设置 → 账号 里填写你自己的 API，或请 Owner 开通")
+    if source == "own":
+        mine = own_key(t["initiator_id"])
+        return {"profile": p, "scope_hash": sh, "session_key": key + f":own{t['initiator_id']}", "config_revision": s["revision"], "tier": "own",
+                "model": mine["model"], "base_url": mine["base_url"], "own_key": True, "reserved_usd": cap}
     limits = [s["monthly_usd"] - _spent(), s["room_monthly_usd"] - _spent(" AND room_id=?", (t["room_id"],))]
     if t["initiator_id"]:
         limits.append(s["user_monthly_usd"] - _spent(" AND initiator_id=?", (t["initiator_id"],)))
     if min(limits) < cap:
         raise ApiError(429, "agent_budget_exhausted", "本月额度不足；未知费用按已预留额度计算，普通聊天不受影响")
-    return {"profile": p, "scope_hash": sh, "session_key": key, "config_revision": s["revision"], "model": s["models"].get(p) or s["model"], "reserved_usd": cap}
+    return {"profile": p, "scope_hash": sh, "session_key": key, "config_revision": s["revision"], "tier": tier, "model": (s["premium_model"] if tier == "pro" else (s["models"].get(p) or s["model"])), "reserved_usd": cap}
 
 
 def begin_attempt(t, admitted: dict, s: dict) -> None:
-    safe = {k: v for k, v in s.items() if k not in ("api_key", "configured")}
+    safe = {k: v for k, v in s.items() if k not in ("api_key", "premium_api_key", "configured", "premium_configured")}
     safe["model"] = admitted["model"]
-    db.run("INSERT INTO task_attempts(task_id,attempt,generation,room_id,initiator_id,profile,model,config_json,reserved_usd,started_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-           (t["id"], t["attempts"], t["lease_generation"], t["room_id"], t["initiator_id"], admitted["profile"], admitted["model"], db.jl(safe), admitted["reserved_usd"], db.now()))
+    safe["tier"] = admitted["tier"]
+    if admitted["tier"] == "pro":
+        safe["base_url"] = s["premium_base_url"]
+    if admitted.get("own_key"):
+        safe["base_url"] = admitted["base_url"]
+        safe["own_key"] = True
+    db.run("INSERT INTO task_attempts(task_id,attempt,generation,room_id,initiator_id,profile,model,config_json,reserved_usd,started_at,own_key) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+           (t["id"], t["attempts"], t["lease_generation"], t["room_id"], t["initiator_id"], admitted["profile"], admitted["model"], db.jl(safe), admitted["reserved_usd"], db.now(), 1 if admitted.get("own_key") else 0))
     db.run("INSERT INTO sdk_sessions(session_key,room_id,profile,scope_hash,config_revision,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(session_key) DO NOTHING",
            (admitted["session_key"], t["room_id"], admitted["profile"], admitted["scope_hash"], s["revision"], db.now()))
 
@@ -182,7 +261,14 @@ def attempt_config(t) -> dict:
         raise ApiError(409, "agent_configuration_changed")
     session = db.one("SELECT * FROM sdk_sessions WHERE session_key=?", (t["session_key"],))
     from . import integrations
-    return {"config": {**db.jd(a["config_json"], {}), "api_key": s["api_key"], "cli_path": cli_path(), "integrations":integrations.configuration(secrets=True)}, "session": dict(session)}
+    cfg = db.jd(a["config_json"], {})
+    if cfg.get("own_key"):
+        key = own_key(t["initiator_id"], secrets=True)["api_key"]
+        if not key:
+            raise ApiError(409, "agent_configuration_changed")
+    else:
+        key = s["premium_api_key"] if cfg.get("tier") == "pro" else s["api_key"]
+    return {"config": {**cfg, "api_key": key, "cli_path": cli_path(), "integrations":integrations.configuration(secrets=True)}, "session": dict(session)}
 
 
 def receipt(t, action: str, object_id: str = "") -> None:

@@ -13,10 +13,13 @@ _waiters: list[asyncio.Future] = []
 
 
 _ws_session: dict = {}
+_native: set = set()  # 安卓 App 的原生后台连接（/ws?client=android）：只用来收系统通知，不渲染界面
 
 
-async def connect(user_id: int, ws, session_hash: str | None = None) -> None:
+async def connect(user_id: int, ws, session_hash: str | None = None, native: bool = False) -> None:
     _clients[user_id].add(ws)
+    if native:
+        _native.add(ws)
     if session_hash:
         _ws_session[ws] = session_hash
 
@@ -33,7 +36,25 @@ async def close_sessions(session_hashes: list[str]) -> None:
                 pass
 
 
+async def send_native(user_id: int, payload: dict) -> int:
+    """只发给该用户的原生 App 连接；返回送达的连接数。"""
+    n = 0
+    for ws in list(_clients.get(user_id, ())):
+        if ws in _native:
+            try:
+                await ws.send_json(payload)
+                n += 1
+            except Exception:
+                _clients[user_id].discard(ws)
+    return n
+
+
+def has_native(user_id: int) -> bool:
+    return any(ws in _native for ws in _clients.get(user_id, ()))
+
+
 def disconnect(user_id: int, ws) -> None:
+    _native.discard(ws)
     _ws_session.pop(ws, None)
     _clients[user_id].discard(ws)
     if not _clients[user_id]:
@@ -91,5 +112,6 @@ def wake_agent() -> None:
 
 def reset() -> None:
     _clients.clear()
+    _native.clear()
     _ws_session.clear()
     _waiters.clear()

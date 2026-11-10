@@ -897,3 +897,21 @@ html[data-ui='classic'] .primary-tabs .nav-ic, html[data-ui='classic'] .primary-
   .primary-tabs .nav-settings { display: block; }
   .left-head button[title='设置'] { display: none; }
 }
+
+/* ---------- 图片查看器：左右滑动 ---------- */
+.lb-stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; touch-action: pan-y; user-select: none; }
+.lb-stage img { pointer-events: none; will-change: transform; }
+.lb-count { position: absolute; top: 22px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,.85); font-size: 13px; letter-spacing: .04em; background: rgba(255,255,255,.12); padding: 4px 12px; border-radius: 99px; }
+.lb-nav { position: absolute; top: 50%; margin-top: -22px; width: 44px; height: 44px; border: 0; border-radius: 50%; background: rgba(255,255,255,.14); color: #fff; display: none; align-items: center; justify-content: center; }
+.lb-nav.prev { left: 14px; } .lb-nav.next { right: 14px; } .lb-nav.next svg { transform: rotate(180deg); }
+@media (hover: hover) and (pointer: fine) { .lb-nav { display: flex; } .lb-nav[hidden] { display: none; } }
+
+/* ---------- 系统分享 → 发送到 ---------- */
+.share { padding: 6px 4px 12px; }
+.share-head { display: flex; align-items: baseline; gap: 10px; padding: 6px 14px 10px; }
+.share-text { margin: 0 14px 10px; padding: 10px 12px; border-radius: 12px; background: var(--hover, rgba(0,0,0,.05)); white-space: pre-wrap; font-size: 14px; }
+.share-list { max-height: 60vh; overflow-y: auto; }
+.share-room { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 14px; border: 0; background: none; color: inherit; font: inherit; text-align: left; border-radius: 12px; }
+.share-room:active, .share-room:hover { background: var(--hover, rgba(0,0,0,.05)); }
+.share-ic { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--accent, #3949ab); color: #fff; font-weight: 600; }
+.share-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

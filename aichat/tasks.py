@@ -69,9 +69,18 @@ def maybe_create_chat_task(room, msg, mention_ids: list[int]) -> int | None:
     triggered = room["type"] == "agent_dm" or agent["user_id"] in mention_ids or (directed and directed["sender_id"] == agent["user_id"])
     if not triggered:
         return None
+    from . import hub, runtime
+
+    if runtime.credential_source(msg["sender_id"]) is None:
+        hub.publish([msg["sender_id"]], {"type": "notice", "level": "warn", "code": "agent_no_access",
+                                          "text": "你还没有开通 AI：在 设置 → 账号 填写你自己的 API，或请 Owner 为你开通"})
+        return None
+    import re
+    # 消息以 /pro 开头（可在 @Agent 之后）= 这一条交给“高级”接入处理；未配置高级接入时自动忽略
+    pro = bool(re.match(r"^\s*(?:@\S+\s+)*/pro\b", (msg["body"] if "body" in msg.keys() else "") or ""))
     tid = db.insert(
         "INSERT INTO agent_tasks(room_id, kind, trigger_message_id, trigger_message_version, status, created_at, expires_at, params) VALUES(?,?,?,?,?,?,?,?)",
-        (room["id"], "chat", msg["id"], msg["version"], "queued", db.now(), db.after(config.get().chat_task_ttl), "{}"),
+        (room["id"], "chat", msg["id"], msg["version"], "queued", db.now(), db.after(config.get().chat_task_ttl), db.jl({"tier": "pro"} if pro else {})),
     )
     db.run("UPDATE agent_tasks SET initiator_id=? WHERE id=?", (msg["sender_id"], tid))
     if voice_ids:
@@ -225,6 +234,10 @@ def schedule_consolidation() -> int:
 
         if not chat.agent_member_id(rid):
             continue
+        # 后台整理用服务器的 API：只给“至少有一位可用服务器 AI 的成员”的房间做
+        if not db.one("SELECT 1 FROM room_members m JOIN users u ON u.id=m.user_id WHERE m.room_id=? AND m.left_at IS NULL AND u.disabled=0 "
+                      "AND (u.role='owner' OR (u.role='user' AND u.agent_access=1))", (rid,)):
+            continue
         cur = _cursor(rid)
         first = db.one("SELECT created_at FROM events WHERE room_id=? AND id>? AND type IN ('message.created','message.edited','message.deleted') ORDER BY id LIMIT 1", (rid, cur))
         if not first:
@@ -329,6 +342,8 @@ def lease_next(cred, owner: str = "", *, engine: str = "legacy", profiles: tuple
                 try:
                     admitted = runtime.admission(t, s)
                 except ApiError as e:
+                    if e.code == "agent_budget_exhausted" and t["kind"] == "consolidate":
+                        continue  # 后台整理遇到额度不足：保持排队等额度恢复，别失败后又被调度器每 10 秒重建
                     db.run("UPDATE agent_tasks SET status='failed', finished_at=?, error=? WHERE id=?", (now, e.code, t["id"]))
                     _publish_task(t["id"])
                     continue

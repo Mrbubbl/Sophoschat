@@ -15,6 +15,9 @@ class Env:
         self.bob_id = auth.create_user("bob", "Bob", "password-bob", "user")
         self.carol_id = auth.create_user("carol", "Carol", "password-carol", "user")
         self.agent_id = auth.agent_user_id()
+        # 测试里的 bob/carol 相当于“升级前就存在的成员”：保留服务器 AI 权限
+        from aichat import db as _db
+        _db.run("UPDATE users SET agent_access=1 WHERE id IN (?,?)", (self.bob_id, self.carol_id))
         for u in (self.alice_id, self.bob_id, self.carol_id):
             chat.bootstrap_user(u)
         # Existing regression scenarios use explicitly connected teammates.

@@ -64,6 +64,9 @@ export function connect() {
       case 'user.updated':
         emit('user:updated', d.user);
         break;
+      case 'notice':
+        import('./util.js').then(({ toast }) => toast(d.text, d.level === 'warn' ? 'err' : undefined));
+        break;
       case 'typing':
         emit('typing', d);
         break;
