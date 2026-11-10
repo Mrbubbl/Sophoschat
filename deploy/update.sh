@@ -114,6 +114,42 @@ echo "api/health       $code"
 [ "$code" = 200 ] || FAIL=1
 [ "$FAIL" = 0 ] || die "有服务异常。查看：journalctl -u aichat -n 50；回滚数据：见 $BK"
 
+# ---------------------------------------------------------------- 安卓 App 新版（给 App 内更新用；失败不影响本次升级）
+say "同步安卓 App 安装包"
+GH_REPO="$(printf '%s' "$REPO" | sed -E 's#^(https://github.com/|git@github.com:)##; s#\.git$##')"
+APPDIR=/var/lib/aichat/app
+mkdir -p "$APPDIR"
+if curl -fsSL -m 30 "https://api.github.com/repos/$GH_REPO/releases?per_page=10" -o "$WORK/releases.json"; then
+  python3 - "$WORK/releases.json" "$APPDIR" <<'PY' || echo "（安装包同步失败，App 内更新暂不可用）"
+import json, sys, urllib.request, os, hashlib
+rel, d = sys.argv[1], sys.argv[2]
+for r in json.load(open(rel)):
+    if not r.get("tag_name", "").startswith("android-"):
+        continue
+    assets = {a["name"]: a["browser_download_url"] for a in r.get("assets", [])}
+    if "SophosChat.apk" not in assets or "version.json" not in assets:
+        continue
+    info = json.load(urllib.request.urlopen(assets["version.json"], timeout=30))
+    cur = {}
+    try: cur = json.load(open(os.path.join(d, "version.json")))
+    except Exception: pass
+    if cur.get("versionCode") == info.get("versionCode"):
+        print("已是最新：", info.get("versionName")); break
+    tmp = os.path.join(d, "SophosChat.apk.part")
+    with urllib.request.urlopen(assets["SophosChat.apk"], timeout=120) as resp, open(tmp, "wb") as f:
+        f.write(resp.read())
+    info["sha256"] = hashlib.sha256(open(tmp, "rb").read()).hexdigest()
+    info["size"] = os.path.getsize(tmp)
+    os.replace(tmp, os.path.join(d, "SophosChat.apk"))
+    json.dump(info, open(os.path.join(d, "version.json"), "w"))
+    print("已同步安卓 App", info.get("versionName"), "(", info.get("versionCode"), ")")
+    break
+PY
+  chown -R aichat:aichat "$APPDIR" 2>/dev/null || true
+else
+  echo "（连不上 GitHub，跳过安装包同步）"
+fi
+
 echo "$NEW" > /opt/aichat/.deployed_commit
 say "更新完成 → $NEW"
 echo "手机端刷新页面即可（PWA 若没变，彻底关掉再打开一次）"

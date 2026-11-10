@@ -467,6 +467,29 @@ async def set_permissions(user_id: int, body: PermIn, u=Depends(owner_user)):
     return _avatar_changed(user_id)
 
 
+# ---------------------------------------------------------------- 安卓 App 内更新（安装包由 deploy/update.sh 从 GitHub Release 同步到 数据目录/app）
+@router.get("/api/app/android")
+async def android_version(u=Depends(current_user)):
+    import json as _json
+    p = config.get().data_dir / "app" / "version.json"
+    try:
+        info = _json.loads(p.read_text())
+    except Exception:
+        return {"available": False}
+    ok = (config.get().data_dir / "app" / "SophosChat.apk").exists()
+    return {"available": ok, "versionCode": info.get("versionCode"), "versionName": info.get("versionName"),
+            "notes": info.get("notes", ""), "size": info.get("size"), "sha256": info.get("sha256"), "url": "/api/app/android.apk"}
+
+
+@router.get("/api/app/android.apk")
+async def android_apk(u=Depends(current_user)):
+    from fastapi.responses import FileResponse
+    p = config.get().data_dir / "app" / "SophosChat.apk"
+    if not p.exists():
+        raise ApiError(404, "not_found", "暂无安装包")
+    return FileResponse(p, media_type="application/vnd.android.package-archive", filename="SophosChat.apk")
+
+
 class OwnKeyIn(BaseModel):
     base_url: str = ""
     model: str = ""

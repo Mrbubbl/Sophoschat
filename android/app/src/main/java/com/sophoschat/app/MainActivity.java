@@ -260,6 +260,7 @@ public class MainActivity extends Activity {
         visible = true;
         PushService.start(this);
         ensureBackgroundSetup();
+        Updater.maybeCheck(this, serverUrl);
     }
 
     /** 首次使用：申请通知权限，再引导加入电池优化白名单（国内手机还要手动开“自启动/后台运行”）。 */
